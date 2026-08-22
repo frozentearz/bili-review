@@ -1,6 +1,6 @@
 ---
 name: bili-review
-description: B站视频总结：获取视频AI字幕总结+读取【评论区楼中楼】（痛点）并总结。AI字幕需要获取浏览器Cookie获取登录状态。触发词：B站视频总结、B站总结、B站评论、看评论区、视频讲了什么、B站深度分析。
+description: 获取视频AI字幕总结+读取【评论区楼中楼】（痛点）并总结。AI字幕需要获取浏览器Cookie获取登录状态。触发词：B站视频总结、B站总结、B站评论、看评论区、视频讲了什么、B站深度分析。
 version: 1.2.0
 author: Frazier
 metadata:
