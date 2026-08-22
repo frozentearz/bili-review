@@ -97,14 +97,92 @@ python3 scripts/bili_review.py all "BV1GJ411x7h7"
 - 文件权限 `600`（仅当前用户可读）
 - 已通过 `.gitignore` / `.clawhubignore` 排除，不会进入仓库或发布包
 
-## 项目结构与架构图
+## 架构与数据管道
 
-- 📊 **[交互式架构与数据管道流程图 (flowchart.html)](./flowchart.html)**（支持滚轮缩放与拖拽）
+> 💡 **在线交互版**：可访问 [🔗 GitHub Pages 高清流程图](https://frozentearz.github.io/bili-review/flowchart.html)（支持鼠标滚轮无级缩放与拖拽）。
+
+```mermaid
+flowchart TD
+    Start(["用户输入: BV / AV / URL / 短链"]) --> ParseInput["输入解析 (extract_bvid)"]
+    
+    subgraph S1 ["1. 输入解析与自适应转换"]
+        ParseInput --> MatchBV{"匹配 BV 号?"}
+        MatchBV -- 是 --> BVIDFound["确定目标 BVID"]
+        MatchBV -- 否 --> MatchAV{"匹配 AV 号?"}
+        MatchAV -- 是 --> API_AV["请求 B站 view 接口反查 BVID"] --> BVIDFound
+        MatchAV -- 否 --> MatchShort{"包含 b23.tv 短链?"}
+        MatchShort -- 是 --> FixProtocol["自动补齐 https:// 追踪重定向"] --> BVIDFound
+        MatchShort -- 否 --> ErrInput["抛出解析异常"]
+    end
+
+    BVIDFound --> Router{"执行模式选择"}
+    Router -- "subtitle" --> SubtitleBranch
+    Router -- "comments" --> CommentsBranch
+    Router -- "all" --> AllBranch["同时触发字幕与评论抓取"] --> OutputMerge
+
+    subgraph SubtitleBranch ["2. AI 字幕处理管道"]
+        CheckCookie{"检查 cookies.txt 有效性"}
+        CheckCookie -- 有效 --> YtDlp["yt-dlp 调用 (带 B站 Cookie)"]
+        CheckCookie -- 无效/缺失 --> ProbeBrowser["多浏览器探测提取 Cookie (权限 600)"] --> YtDlp
+        YtDlp --> CleanSubs["字幕清洗 (clean_subtitle)<br/>• 剔除时间戳/WEBVTT标签<br/>• 相邻行滑动去重 (保留后续正常台词)"]
+    end
+
+    subgraph CommentsBranch ["3. 评论区高并发与智能去噪管道"]
+        CheckFull{"是否触发全量抓取?<br/>(--all-comments / --limit 0)"}
+        
+        CheckFull -- "是 (总数 > 500)" --> EstTime["时间与请求量动态预估 (estimate_crawl)"]
+        EstTime --> CheckTTY{"是否传 -y 或非 TTY?"}
+        CheckTTY -- 是 --> RunFull["确认全量抓取 (不设上限)"]
+        CheckTTY -- 否 --> UserPrompt{"弹出 [y/N] 交互确认"}
+        UserPrompt -- "用户选 y" --> RunFull
+        UserPrompt -- "用户选 n / 取消" --> FallbackSafe["平稳降级至 200 楼默认安全策略"]
+        
+        CheckFull -- 否 --> FloorCalc["主楼阶梯计算: min(200, ceil(总数*30%/20)*20)"]
+        
+        RunFull --> MainLoop["主楼分页请求 (/x/v2/reply/main)"]
+        FallbackSafe --> MainLoop
+        FloorCalc --> MainLoop
+
+        subgraph LoopCore ["主楼逐页处理与轻量去噪"]
+            MainLoop --> DeadLoopCheck{"RPID 集合判重<br/>(整页是否均已见过?)"}
+            DeadLoopCheck -- 是/已到末尾 --> ExitMain["安全终止主楼翻页"]
+            DeadLoopCheck -- 否 --> ProcessFloors["遍历每楼评论"]
+            
+            ProcessFloors --> NoiseFilter{"轻量去噪检查<br/>1. 文本长度 <= 1 ?<br/>2. 相同文本全局频次 > 3 ?"}
+            NoiseFilter -- 命中垃圾/刷屏 --> SkipComment["continue 跳过当前条 (绝不中断主流程)"]
+            NoiseFilter -- 正常内容 --> ExtractEmbed["白嫖自带数据: 提取自带 1~3 条热评回复 (0 网络请求)"]
+        end
+
+        ExitMain --> CheckReplies{"是否开启 --replies ?"}
+        CheckReplies -- 否 --> FormatComments["整理并格式化评论"]
+        CheckReplies -- 是 --> FilterDeep["筛选深度讨论楼 (总回复数 > 自带预览数)"]
+        
+        FilterDeep --> ThreadPool["ThreadPoolExecutor (5 个工作线程并发深挖)"]
+        ThreadPool --> SubReplyAPI["/x/v2/reply/reply 并发拉取楼中楼"]
+        SubReplyAPI --> FormatComments
+        
+        MainLoop -.->|用户随时 Ctrl+C 中断| GracefulCatch["优雅捕获 KeyboardInterrupt<br/>完整保留并输出当前已抓取数据"] --> FormatComments
+    end
+
+    CleanSubs --> OutputMerge["Markdown 结构化格式拼装"]
+    FormatComments --> OutputMerge
+    OutputMerge --> FinalLLM(["交付结构化上下文给 LLM 输出总结报告"])
+
+    classDef highlight fill:#0284c7,stroke:#38bdf8,stroke-width:2px,color:#fff;
+    classDef safe fill:#15803d,stroke:#4ade80,stroke-width:2px,color:#fff;
+    classDef alert fill:#c2410c,stroke:#fb923c,stroke-width:2px,color:#fff;
+    
+    class BVIDFound,OutputMerge,FinalLLM highlight;
+    class CleanSubs,ExtractEmbed,ThreadPool safe;
+    class UserPrompt,EstTime,GracefulCatch alert;
+```
+
+## 项目结构
 
 ```
 bili-review/
 ├── SKILL.md                    # Skill 文档（ClawHub 规范）
-├── flowchart.html              # 架构与数据管道交互图（浏览器打开）
+├── flowchart.html              # 架构与数据管道交互图（支持 GitHub Pages 在线预览）
 ├── scripts/
 │   ├── bili_review.py          # 主脚本：字幕 + 评论抓取
 │   └── extract_cookies.py      # 浏览器 cookie 提取（仅 B 站域名）
