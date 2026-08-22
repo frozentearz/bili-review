@@ -79,12 +79,14 @@ python3 {baseDir}/scripts/bili_review.py subtitle "https://www.bilibili.com/vide
 爬取视频评论区，输出结构化评论数据，交给 LLM 做评论总结与观点聚类。
 
 ```bash
-python3 {baseDir}/scripts/bili_review.py comments "BV1GJ411x7h7" --limit 50
+python3 {baseDir}/scripts/bili_review.py comments "BV1GJ411x7h7"
 ```
 
-- `--limit N`：评论条数，默认 30，上限 50
-- 排序规则：按点赞数从高到低（热门优先，比时间序更能代表民意）
-- **楼中楼**：加 `--replies` 同时抓取每条热门评论的楼中楼回复（默认每条 5 条，`--replies-per N` 调整）
+- **楼层规则**：`楼层 = min(200, ceil(评论数×30% ÷ 20) × 20)`——单调不降、按 20 条/页对齐、自动封顶 200 楼（10 页）
+- **楼中楼规则**（`--replies` 开启）：单楼 ≤20 条全爬 / ≤250 条取 40 / 250+ 取 60（对齐 20 条/页）
+- **请求预算**：楼中楼总请求预算 900 次（约 1 分钟），预算用尽自动停止，保证用户等待时间可控
+- **去水规则**：连续 3 次遇到同一楼/同一层内容 → 停止爬取。不去重、不去水、不排序
+- `--limit N`：楼层目标上限，默认 200
 - 输出：视频元信息 + 评论列表（含楼中楼，作者 / 点赞 / 内容），供 LLM 总结
 - 免登录，无需任何 API Key
 
@@ -93,7 +95,7 @@ python3 {baseDir}/scripts/bili_review.py comments "BV1GJ411x7h7" --limit 50
 字幕 + 评论一次抓完，一起交给 LLM。
 
 ```bash
-python3 {baseDir}/scripts/bili_review.py all "BV1GJ411x7h7" --limit 30
+python3 {baseDir}/scripts/bili_review.py all "BV1GJ411x7h7"
 ```
 
 ## 标准工作流（Agent 执行）
@@ -149,7 +151,7 @@ python3 {baseDir}/scripts/bili_review.py all "BV1GJ411x7h7" --limit 30
 
 ## 注意事项
 
-- 字幕：依赖视频是否有 AI 字幕；`yt-dlp` 被 B 站限流时（HTTP 412）稍后重试
+- 字幕：依赖视频是否有 AI 字幕；`yt-dlp` 被 B 站限流时（HTTP 412）自动退避重试（3s/6s，最多 3 次）
 - 登录态：`cookies.txt` 存于 skill 根目录，含登录凭证，请勿外泄；有效期约 150 天，失效后自动重新提取
-- 评论：公开接口单次最多 50 条，如需更多可调整 `--limit`；部分视频评论关闭则返回空
+- 评论：楼层按公式自动定档（最多 200 楼），楼中楼受 900 次请求预算保护；部分视频评论关闭则返回空
 - 免费无依赖：不需要任何第三方 API Key，仅需 `yt-dlp` 和 `python3` 标准库
