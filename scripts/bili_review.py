@@ -13,11 +13,13 @@ bili-review - B站视频字幕抓取 + 评论区爬取
 纯 Python 标准库, 无第三方 API Key。
 """
 import argparse
+import concurrent.futures
 import http.cookiejar
 import json
 import math
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -30,6 +32,7 @@ UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
 BVID_PATTERN = re.compile(r'BV[0-9A-Za-z]{10}')
+AID_PATTERN = re.compile(r'(?:av|AV)(\d+)')
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 SCRIPTS_DIR = Path(__file__).resolve().parent
@@ -40,12 +43,26 @@ BROWSERS = ["chrome", "edge", "firefox", "brave", "chromium",
 
 
 def extract_bvid(text: str) -> str:
-    """从 BV号 / 完整链接 / b23.tv 短链中提取 BV 号."""
+    """从 BV号 / AV号 / 完整链接 / b23.tv 短链中提取 BV 号."""
+    text = str(text).strip()
     m = BVID_PATTERN.search(text)
     if m:
         return m.group(0)
+
+    # 支持 AV 号 (如 av170001, AV2)
+    m_aid = AID_PATTERN.search(text)
+    if m_aid:
+        aid = m_aid.group(1)
+        try:
+            data = http_get_json(f"https://api.bilibili.com/x/web-interface/view?aid={aid}")
+            if data.get('code') == 0 and data.get('data', {}).get('bvid'):
+                return data['data']['bvid']
+        except Exception:
+            pass
+
     if 'b23.tv' in text:
-        req = urllib.request.Request(text, headers={'User-Agent': UA})
+        url = text if text.startswith(('http://', 'https://')) else f"https://{text}"
+        req = urllib.request.Request(url, headers={'User-Agent': UA})
         try:
             with urllib.request.urlopen(req, timeout=15) as resp:
                 final_url = resp.geturl()
@@ -101,17 +118,38 @@ def get_video_info(bvid: str) -> dict:
 # ---------- 登录态管理 ----------
 
 def find_ytdlp_python() -> str:
-    """定位 yt-dlp 自带的 python 环境(含 yt_dlp 模块, 用于解密浏览器cookie)."""
+    """定位安装了 yt_dlp 模块的 python 环境(用于解密浏览器 cookie)."""
+    # 1. 当前环境若直接支持 yt_dlp 模块，直接复用
+    try:
+        import yt_dlp  # noqa: F401
+        return sys.executable
+    except ImportError:
+        pass
+
+    # 2. 检查 which yt-dlp 的 shebang 解释器
+    ytdlp_bin = shutil.which('yt-dlp')
+    if ytdlp_bin and os.path.exists(ytdlp_bin):
+        try:
+            with open(ytdlp_bin, 'rb') as f:
+                first_line = f.readline().decode('utf-8', errors='ignore').strip()
+                if first_line.startswith('#!') and 'python' in first_line:
+                    py_path = first_line[2:].strip()
+                    if os.path.exists(py_path):
+                        return py_path
+        except Exception:
+            pass
+
+    # 3. macOS Homebrew 常见路径探测
     candidates = []
     try:
         prefix = subprocess.run(['brew', '--prefix', 'yt-dlp'], capture_output=True,
-                                text=True, timeout=10)
+                                text=True, timeout=5)
         if prefix.returncode == 0:
             candidates.append(str(Path(prefix.stdout.strip()) / "libexec" / "bin" / "python3"))
     except Exception:
         pass
-    if os.path.exists('/opt/homebrew/opt/yt-dlp/libexec/bin/python3'):
-        candidates.append('/opt/homebrew/opt/yt-dlp/libexec/bin/python3')
+    candidates.append('/opt/homebrew/opt/yt-dlp/libexec/bin/python3')
+    candidates.append('/usr/local/opt/yt-dlp/libexec/bin/python3')
     for c in candidates:
         if c and os.path.exists(c):
             return c
@@ -222,92 +260,35 @@ def reply_limit(count: int) -> int:
         return 60  # 3页
 
 
-# 楼中楼总请求预算: 用户等待上限约1分钟(15-20请求/秒 → 约900次请求)
-REPLY_BUDGET = 900
-
-
-def fetch_comments(bvid: str, limit: int = 200, include_replies: bool = False) -> dict:
-    """爬取评论区: 免登录公开API, 热门排序(mode=3).
-    楼层规则: min(200, 评论数×30%对齐20/页).
-    楼中楼规则: 单楼≤20全爬/≤250取40/250+取60; 总请求预算 REPLY_BUDGET 用尽即停.
-    连续 3 次遇到同一楼内容则停止爬取. 不去重、不去水、不排序."""
-    info = get_video_info(bvid)
-    total = info['stats']['comment']
-    target = min(floor_limit(total), limit)
-    comments = []
-    seen_streak = 0
-    next_page = 0
-    budget = REPLY_BUDGET if include_replies else 0
-    while len(comments) < target:
-        data = http_get_json(
-            f"https://api.bilibili.com/x/v2/reply/main?type=1&oid={info['aid']}"
-            f"&mode=3&next={next_page}",
-            referer=f"https://www.bilibili.com/video/{bvid}")
-        if data.get('code') != 0:
-            raise RuntimeError(f"获取评论失败: {data.get('message')}")
-        d = data.get('data') or {}
-        replies = d.get('replies') or []
-        if not replies:
-            break
-        for r in replies:
-            text = r.get('content', {}).get('message', '').strip()
-            if comments and comments[-1]['text'] == text:
-                seen_streak += 1
-            else:
-                seen_streak = 0
-            if seen_streak >= 3:
-                break
-            c = {
-                'like': r.get('like', 0),
-                'author': r.get('member', {}).get('uname', '匿名'),
-                'text': text,
-                'rcount': r.get('rcount', 0),
-            }
-            if include_replies and budget > 0:
-                c['replies'], budget = fetch_replies(info['aid'], r['rpid'],
-                                                     max_replies=reply_limit(c['rcount']),
-                                                     budget=budget)
-                if budget <= 0:
-                    comments.append(c)
-                    break
-            comments.append(c)
-            if len(comments) >= target:
-                break
-        if seen_streak >= 3 or budget <= 0:
-            break
-        cursor = d.get('cursor') or {}
-        next_page = cursor.get('next', next_page + 1)
-        if cursor.get('is_end') or next_page is None:
-            break
-    return {'info': info, 'total': total, 'comments': comments}
-
-
-def fetch_replies(aid: int, rpid: int, max_replies: int = 60, budget: int = 900) -> tuple:
-    """抓取某条评论的楼中楼回复: 按 pn 翻页直到收集满 max_replies 条或数据结束.
-    连续 3 次遇到同一层内容则停止爬取. 不去重、不去水、不排序.
-    返回 (collected, 剩余预算)."""
+def fetch_replies(aid: int, rpid: int, max_replies: int = 60) -> list:
+    """抓取某条评论的深度楼中楼回复: 按 pn 翻页直到收集满 max_replies 条或数据结束.
+    基于 rpid 集合防死循环, 过滤过短无意义水评."""
     collected = []
-    seen_streak = 0
+    seen_rpids = set()
     pn = 1
-    while len(collected) < max_replies and budget > 0:
-        data = http_get_json(
-            f"https://api.bilibili.com/x/v2/reply/reply?type=1&oid={aid}"
-            f"&root={rpid}&ps=20&pn={pn}",
-            referer="https://www.bilibili.com/")
-        budget -= 1
+    while len(collected) < max_replies:
+        try:
+            data = http_get_json(
+                f"https://api.bilibili.com/x/v2/reply/reply?type=1&oid={aid}"
+                f"&root={rpid}&ps=20&pn={pn}",
+                referer="https://www.bilibili.com/")
+        except Exception:
+            break
         if data.get('code') != 0:
             break
         replies = (data.get('data') or {}).get('replies') or []
         if not replies:
             break
+        page_rpids = {r['rpid'] for r in replies}
+        if page_rpids.issubset(seen_rpids):
+            break
         for r in replies:
+            if r['rpid'] in seen_rpids:
+                continue
+            seen_rpids.add(r['rpid'])
             text = r.get('content', {}).get('message', '').strip()
-            if collected and collected[-1]['text'] == text:
-                seen_streak += 1
-            else:
-                seen_streak = 0
-            if seen_streak >= 3:
-                break
+            if len(text) <= 1:
+                continue
             collected.append({
                 'like': r.get('like', 0),
                 'author': r.get('member', {}).get('uname', '匿名'),
@@ -315,10 +296,139 @@ def fetch_replies(aid: int, rpid: int, max_replies: int = 60, budget: int = 900)
             })
             if len(collected) >= max_replies:
                 break
-        if seen_streak >= 3:
+        cursor = (data.get('data') or {}).get('page') or {}
+        if cursor.get('count', 0) <= pn * 20:
             break
         pn += 1
-    return collected, budget
+    return collected
+
+
+def estimate_crawl(total: int, include_replies: bool = False) -> tuple:
+    """预估全量抓取的请求次数和耗时."""
+    main_pages = math.ceil(total / 20)
+    if include_replies:
+        # 预估约 25% 的楼层有深度回复需要深挖，平均每个 1.5 页
+        reply_reqs = int(main_pages * 20 * 0.25 * 1.5)
+        est_reqs = main_pages + reply_reqs
+        sec = max(2, int(est_reqs / 10))
+    else:
+        est_reqs = main_pages
+        sec = max(1, int(est_reqs / 5))
+
+    if sec < 60:
+        time_str = f"约 {sec} 秒"
+    else:
+        mins = sec // 60
+        time_str = f"约 {mins} 分 {sec % 60} 秒"
+    return est_reqs, time_str
+
+
+def confirm_full_crawl(total: int, include_replies: bool, yes: bool) -> bool:
+    """针对大评论量全量抓取进行时间预估与二次确认. 返回 True 表示确认全量，False 表示降级为默认限制."""
+    if total <= 500 or yes:
+        return True
+    est_reqs, time_str = estimate_crawl(total, include_replies)
+    prompt_msg = (
+        f"\n[提示] 视频总评论数: {fmt_num(total)} 条。\n"
+        f"全量扫描预计需要 {est_reqs} 次请求，耗时 {time_str}（高频请求可能触发 B 站限流）。\n"
+        f"是否继续全量抓取？[y/N]: "
+    )
+    if not sys.stdin.isatty():
+        print(f"[提示] 视频总评论数: {fmt_num(total)} 条。全量预计耗时 {time_str}。(非交互环境未指定 -y，自动使用默认安全上限)", file=sys.stderr)
+        return False
+    try:
+        res = input(prompt_msg).strip().lower()
+        if res in ('y', 'yes'):
+            return True
+        print("已取消全量抓取，自动使用默认安全上限（最多 200 楼）继续执行。\n", file=sys.stderr)
+        return False
+    except (KeyboardInterrupt, EOFError):
+        print("\n已取消全量抓取，自动使用默认安全上限（最多 200 楼）继续执行。\n", file=sys.stderr)
+        return False
+
+
+def fetch_comments(bvid: str, limit: int = 200, include_replies: bool = False, is_full: bool = False) -> dict:
+    """爬取评论区: 免登录公开API, 热门排序(mode=3).
+    楼层规则: limit=0 或 is_full=True 为全量抓取，否则 min(200, 评论数×30%对齐20/页).
+    轻量去噪: 过滤过短字符, 同一文本出现超过3次则跳过(不中断主流程).
+    死循环防护: 基于 rpid 集合与 cursor 状态判断.
+    楼中楼: 默认利用接口自带预览; 开启 include_replies 时多线程并发深挖."""
+    info = get_video_info(bvid)
+    total = info['stats']['comment']
+    target = float('inf') if (is_full or limit == 0) else min(floor_limit(total), limit)
+    comments = []
+    seen_rpids = set()
+    text_freq = {}
+    next_page = 0
+
+    try:
+        while len(comments) < target:
+            data = http_get_json(
+                f"https://api.bilibili.com/x/v2/reply/main?type=1&oid={info['aid']}"
+                f"&mode=3&next={next_page}",
+                referer=f"https://www.bilibili.com/video/{bvid}")
+            if data.get('code') != 0:
+                raise RuntimeError(f"获取评论失败: {data.get('message')}")
+            d = data.get('data') or {}
+            replies = d.get('replies') or []
+            if not replies:
+                break
+            page_rpids = {r['rpid'] for r in replies}
+            if page_rpids.issubset(seen_rpids):
+                break
+            for r in replies:
+                rpid = r['rpid']
+                if rpid in seen_rpids:
+                    continue
+                seen_rpids.add(rpid)
+                text = r.get('content', {}).get('message', '').strip()
+                if len(text) <= 1:
+                    continue
+                text_freq[text] = text_freq.get(text, 0) + 1
+                if text_freq[text] > 3:
+                    continue  # 同文本刷屏超过3次仅跳过当前条, 绝不中断后续爬取
+                c = {
+                    'rpid': rpid,
+                    'like': r.get('like', 0),
+                    'author': r.get('member', {}).get('uname', '匿名'),
+                    'text': text,
+                    'rcount': r.get('rcount', 0),
+                    'replies': [],
+                }
+                # 白嫖主接口自带的 1~3 条热评回复
+                for er in (r.get('replies') or []):
+                    er_text = er.get('content', {}).get('message', '').strip()
+                    if len(er_text) > 1:
+                        c['replies'].append({
+                            'like': er.get('like', 0),
+                            'author': er.get('member', {}).get('uname', '匿名'),
+                            'text': er_text,
+                        })
+                comments.append(c)
+                if len(comments) >= target:
+                    break
+            cursor = d.get('cursor') or {}
+            next_page = cursor.get('next', next_page + 1)
+            if cursor.get('is_end') or next_page is None:
+                break
+
+        # 开启 --replies 时，对回复数多于已解析条数的楼层进行线程池并发深挖
+        if include_replies:
+            needs_deep = [c for c in comments if c['rcount'] > len(c['replies'])]
+            if needs_deep:
+                def enrich(comment):
+                    max_r = reply_limit(comment['rcount'])
+                    deep = fetch_replies(info['aid'], comment['rpid'], max_replies=max_r)
+                    if deep:
+                        comment['replies'] = deep
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                    list(executor.map(enrich, needs_deep))
+
+    except KeyboardInterrupt:
+        print(f"\n[已中断] 正在整理并输出当前已抓取的 {len(comments)} 条评论...", file=sys.stderr)
+
+    return {'info': info, 'total': total, 'comments': comments}
 
 
 def fmt_num(n) -> str:
@@ -390,7 +500,7 @@ def fetch_subtitle(bvid: str, lang: str = None) -> str:
 
 def clean_subtitle(content: str, suffix: str) -> str:
     lines = content.splitlines()
-    out, seen = [], set()
+    out = []
     ts = re.compile(r'\d{1,2}:\d{2}:\d{2}(?:[.,]\d{1,3})?\s*-->\s*\d{1,2}:\d{2}:\d{2}(?:[.,]\d{1,3})?')
     for line in lines:
         line = line.strip()
@@ -399,9 +509,9 @@ def clean_subtitle(content: str, suffix: str) -> str:
         if ts.match(line):
             continue
         line = re.sub(r'<[^>]+>', '', line)
-        if not line or line in seen:
+        # 仅做相邻重复行滑动去重，保留后续视频中正常重复出现的台词
+        if not line or (out and out[-1] == line):
             continue
-        seen.add(line)
         out.append(line)
     return '\n'.join(out)
 
@@ -435,7 +545,9 @@ def main():
         p = sub.add_parser(name, help=f"{name} 抓取")
         p.add_argument("input", help="BV号 / 视频链接 / b23.tv 短链")
         p.add_argument("--lang", default=None, help="字幕语言(默认 ai-zh, 如 en 用 ai-en)")
-        p.add_argument("--limit", type=int, default=200, help="楼层目标上限(默认200, 实际按评论总数规则对齐20条/页: 100内取五成, 500内取四成, 2000内取三成, 2000+取200楼)")
+        p.add_argument("--limit", type=int, default=200, help="楼层目标上限(默认200, 设为0或使用--all-comments表示全量抓取)")
+        p.add_argument("--all-comments", action="store_true", help="全量爬取评论区(不设上限)")
+        p.add_argument("-y", "--yes", action="store_true", help="自动确认全量抓取，跳过交互提示")
         p.add_argument("--replies", action="store_true", help="同时抓取楼中楼(按楼数规则对齐20条/页: 20内全爬, 250内取40, 250+取60)")
         p.set_defaults(func=None)
     args = parser.parse_args()
@@ -449,20 +561,29 @@ def main():
         return
 
     try:
-        if args.limit <= 0:
-            raise ValueError(f"--limit 必须为正数(当前 {args.limit})")
+        if args.limit < 0:
+            raise ValueError(f"--limit 不能为负数(当前 {args.limit})")
         bvid = extract_bvid(args.input)
+        want_full = getattr(args, 'all_comments', False) or args.limit == 0
+        is_full = False
+        limit = args.limit
+        if want_full:
+            info = get_video_info(bvid)
+            is_full = confirm_full_crawl(info['stats']['comment'], getattr(args, 'replies', False), getattr(args, 'yes', False))
+            if not is_full:
+                limit = 200
+
         if args.mode == 'subtitle':
             print_subtitle_output(bvid, args.lang)
         elif args.mode == 'comments':
-            result = fetch_comments(bvid, args.limit, args.replies)
+            result = fetch_comments(bvid, limit, args.replies, is_full=is_full)
             result['info']['bvid'] = bvid
             print_comments_list(result, include_meta=True)
         else:
             info = get_video_info(bvid)
             info['bvid'] = bvid
             subtitle_text = fetch_subtitle(bvid, args.lang)
-            result = fetch_comments(bvid, args.limit, args.replies)
+            result = fetch_comments(bvid, limit, args.replies, is_full=is_full)
             s = info['stats']
             print(f"# 视频: {info['title']}")
             print(f"# BVID: {bvid}")

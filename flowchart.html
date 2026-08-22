@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>bili-review 架构与数据管道流程图</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
+  <style>
+    :root {
+      --bg-color: #0f172a;
+      --card-bg: rgba(30, 41, 59, 0.85);
+      --border-color: rgba(255, 255, 255, 0.12);
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent: #38bdf8;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      background: radial-gradient(circle at 50% 0%, #1e293b 0%, var(--bg-color) 70%);
+      color: var(--text-main);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    header {
+      padding: 16px 24px;
+      background: rgba(15, 23, 42, 0.9);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 10;
+    }
+
+    .title-group h1 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .title-group p {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 10px;
+    }
+
+    .btn {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+      user-select: none;
+    }
+
+    .btn:hover {
+      background: rgba(56, 189, 248, 0.2);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .hint {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-right: 12px;
+    }
+
+    main {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    #diagram-container {
+      width: 100%;
+      height: 100%;
+      cursor: grab;
+    }
+
+    #diagram-container:active {
+      cursor: grabbing;
+    }
+
+    .mermaid {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .mermaid svg {
+      width: 100% !important;
+      height: 100% !important;
+      max-width: none !important;
+    }
+
+    .legend-card {
+      position: absolute;
+      bottom: 24px;
+      left: 24px;
+      background: var(--card-bg);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 14px 18px;
+      font-size: 0.85rem;
+      z-index: 10;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    }
+
+    .legend-title {
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: var(--accent);
+    }
+
+    .legend-items {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-muted);
+    }
+
+    .color-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 3px;
+    }
+    .dot-blue { background: #0284c7; border: 1px solid #38bdf8; }
+    .dot-green { background: #15803d; border: 1px solid #4ade80; }
+    .dot-orange { background: #c2410c; border: 1px solid #fb923c; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="title-group">
+      <h1>📺 bili-review 全流程架构与数据管道图</h1>
+      <p>支持鼠标拖拽平移、滚轮无级放大缩小，高清矢量呈现</p>
+    </div>
+    <div class="toolbar">
+      <span class="hint">💡 鼠标滚轮缩放 / 按住左键拖拽</span>
+      <button class="btn" onclick="zoomIn()">➕ 放大</button>
+      <button class="btn" onclick="zoomOut()">➖ 缩小</button>
+      <button class="btn" onclick="resetZoom()">🔄 重置视图</button>
+    </div>
+  </header>
+
+  <main>
+    <div id="diagram-container">
+      <div class="mermaid" id="mermaid-graph">
+flowchart TD
+    Start(["用户输入: BV / AV / URL / 短链"]) --> ParseInput["输入解析 (extract_bvid)"]
+    
+    subgraph S1 ["1. 输入解析与自适应转换"]
+        ParseInput --> MatchBV{"匹配 BV 号?"}
+        MatchBV -- 是 --> BVIDFound["确定目标 BVID"]
+        MatchBV -- 否 --> MatchAV{"匹配 AV 号?"}
+        MatchAV -- 是 --> API_AV["请求 B站 view 接口反查 BVID"] --> BVIDFound
+        MatchAV -- 否 --> MatchShort{"包含 b23.tv 短链?"}
+        MatchShort -- 是 --> FixProtocol["自动补齐 https:// 追踪重定向"] --> BVIDFound
+        MatchShort -- 否 --> ErrInput["抛出解析异常"]
+    end
+
+    BVIDFound --> Router{"执行模式选择"}
+    Router -- "subtitle" --> SubtitleBranch
+    Router -- "comments" --> CommentsBranch
+    Router -- "all" --> AllBranch["同时触发字幕与评论抓取"] --> OutputMerge
+
+    subgraph SubtitleBranch ["2. AI 字幕处理管道"]
+        CheckCookie{"检查 cookies.txt 有效性"}
+        CheckCookie -- 有效 --> YtDlp["yt-dlp 调用 (带 B站 Cookie)"]
+        CheckCookie -- 无效/缺失 --> ProbeBrowser["多浏览器探测提取 Cookie (权限 600)"] --> YtDlp
+        YtDlp --> CleanSubs["字幕清洗 (clean_subtitle)<br/>• 剔除时间戳/WEBVTT标签<br/>• 相邻行滑动去重 (保留后续正常台词)"]
+    end
+
+    subgraph CommentsBranch ["3. 评论区高并发与智能去噪管道"]
+        CheckFull{"是否触发全量抓取?<br/>(--all-comments / --limit 0)"}
+        
+        CheckFull -- "是 (总数 > 500)" --> EstTime["时间与请求量动态预估 (estimate_crawl)"]
+        EstTime --> CheckTTY{"是否传 -y 或非 TTY?"}
+        CheckTTY -- 是 --> RunFull["确认全量抓取 (不设上限)"]
+        CheckTTY -- 否 --> UserPrompt{"弹出 [y/N] 交互确认"}
+        UserPrompt -- "用户选 y" --> RunFull
+        UserPrompt -- "用户选 n / 取消" --> FallbackSafe["平稳降级至 200 楼默认安全策略"]
+        
+        CheckFull -- 否 --> FloorCalc["主楼阶梯计算: min(200, ceil(总数*30%/20)*20)"]
+        
+        RunFull --> MainLoop["主楼分页请求 (/x/v2/reply/main)"]
+        FallbackSafe --> MainLoop
+        FloorCalc --> MainLoop
+
+        subgraph LoopCore ["主楼逐页处理与轻量去噪"]
+            MainLoop --> DeadLoopCheck{"RPID 集合判重<br/>(整页是否均已见过?)"}
+            DeadLoopCheck -- 是/已到末尾 --> ExitMain["安全终止主楼翻页"]
+            DeadLoopCheck -- 否 --> ProcessFloors["遍历每楼评论"]
+            
+            ProcessFloors --> NoiseFilter{"轻量去噪检查<br/>1. 文本长度 <= 1 ?<br/>2. 相同文本全局频次 > 3 ?"}
+            NoiseFilter -- 命中垃圾/刷屏 --> SkipComment["continue 跳过当前条 (绝不中断主流程)"]
+            NoiseFilter -- 正常内容 --> ExtractEmbed["白嫖自带数据: 提取自带 1~3 条热评回复 (0 网络请求)"]
+        end
+
+        ExitMain --> CheckReplies{"是否开启 --replies ?"}
+        CheckReplies -- 否 --> FormatComments["整理并格式化评论"]
+        CheckReplies -- 是 --> FilterDeep["筛选深度讨论楼 (总回复数 > 自带预览数)"]
+        
+        FilterDeep --> ThreadPool["ThreadPoolExecutor (5 个工作线程并发深挖)"]
+        ThreadPool --> SubReplyAPI["/x/v2/reply/reply 并发拉取楼中楼"]
+        SubReplyAPI --> FormatComments
+        
+        MainLoop -.->|用户随时 Ctrl+C 中断| GracefulCatch["优雅捕获 KeyboardInterrupt<br/>完整保留并输出当前已抓取数据"] --> FormatComments
+    end
+
+    CleanSubs --> OutputMerge["Markdown 结构化格式拼装"]
+    FormatComments --> OutputMerge
+    OutputMerge --> FinalLLM(["交付结构化上下文给 LLM 输出总结报告"])
+
+    classDef highlight fill:#0284c7,stroke:#38bdf8,stroke-width:2px,color:#fff;
+    classDef safe fill:#15803d,stroke:#4ade80,stroke-width:2px,color:#fff;
+    classDef alert fill:#c2410c,stroke:#fb923c,stroke-width:2px,color:#fff;
+    
+    class BVIDFound,OutputMerge,FinalLLM highlight;
+    class CleanSubs,ExtractEmbed,ThreadPool safe;
+    class UserPrompt,EstTime,GracefulCatch alert;
+      </div>
+    </div>
+
+    <div class="legend-card">
+      <div class="legend-title">模块与状态图例</div>
+      <div class="legend-items">
+        <div class="legend-item"><div class="color-dot dot-blue"></div>核心路由与交付节点</div>
+        <div class="legend-item"><div class="color-dot dot-green"></div>零成本白嫖 / 高性能并发加速</div>
+        <div class="legend-item"><div class="color-dot dot-orange"></div>风控预警 / 二次确认 / 中断兜底</div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'dark',
+      securityLevel: 'loose',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC"',
+      flowchart: {
+        curve: 'basis',
+        useMaxWidth: false,
+        htmlLabels: true
+      }
+    });
+
+    let panZoomInstance = null;
+
+    window.addEventListener('load', () => {
+      setTimeout(() => {
+        const svgElement = document.querySelector('#mermaid-graph svg');
+        if (svgElement) {
+          panZoomInstance = svgPanZoom(svgElement, {
+            zoomEnabled: true,
+            controlIconsEnabled: false,
+            fit: true,
+            center: true,
+            minZoom: 0.2,
+            maxZoom: 10,
+            zoomScaleSensitivity: 0.2
+          });
+        }
+      }, 500);
+    });
+
+    function zoomIn() {
+      if (panZoomInstance) panZoomInstance.zoomIn();
+    }
+
+    function zoomOut() {
+      if (panZoomInstance) panZoomInstance.zoomOut();
+    }
+
+    function resetZoom() {
+      if (panZoomInstance) {
+        panZoomInstance.reset();
+        panZoomInstance.fit();
+        panZoomInstance.center();
+      }
+    }
+  </script>
+</body>
+</html>
