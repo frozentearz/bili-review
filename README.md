@@ -1,6 +1,6 @@
 # Bili-review 📺
 
-> B站视频深度总结 Skill：**视频AI字幕总结 + 评论区楼中楼总结**，双维度输出。
+> 获取视频AI字幕总结+读取【评论区楼中楼】（痛点）并总结。
 >
 > 如果这个项目对你有用，欢迎 [⭐ Star](https://github.com/frozentearz/bili-review) 支持，遇到问题或建议请 [📝 提 Issue](https://github.com/frozentearz/bili-review/issues)。
 
