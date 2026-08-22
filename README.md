@@ -1,4 +1,4 @@
-# Bili-review 📺
+# bili-review 📺
 
 > 获取视频AI字幕总结+读取【评论区楼中楼】（痛点）并总结。
 >

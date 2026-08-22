@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Bili-review - B站视频字幕抓取 + 评论区爬取
+bili-review - B站视频字幕抓取 + 评论区爬取
 子功能:
   subtitle  <bvid|url>           抓取AI字幕(yt-dlp, 自动复用本地登录态)
   comments  <bvid|url> --limit   爬取评论区(公开API, 免登录, 按点赞排序)
@@ -422,7 +422,7 @@ def print_subtitle_output(bvid: str, lang: str) -> None:
 # ---------- 入口 ----------
 
 def main():
-    parser = argparse.ArgumentParser(description="Bili-review: B站字幕+评论抓取")
+    parser = argparse.ArgumentParser(description="bili-review: B站字幕+评论抓取")
     sub = parser.add_subparsers(dest="mode", required=True)
 
     p_login = sub.add_parser("login", help="从浏览器提取登录态存本地(首次授权一次)")

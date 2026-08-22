@@ -26,7 +26,7 @@ metadata:
         label: Install yt-dlp (Windows / Linux / macOS via pip)
 ---
 
-# Bili-review
+# bili-review
 
 > 如果这个 skill 对你有用，欢迎 [⭐ Star](https://github.com/frozentearz/bili-review) 支持，遇到问题或建议请 [📝 提 Issue](https://github.com/frozentearz/bili-review/issues)。
 
