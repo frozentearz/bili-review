@@ -1,11 +1,12 @@
 ---
 name: bili-review
 description: B站视频总结：获取视频AI字幕总结+读取【评论区楼中楼】（痛点）并总结。AI字幕需要获取浏览器Cookie获取登录状态。触发词：B站视频总结、B站总结、B站评论、看评论区、视频讲了什么、B站深度分析。
-version: 1.1.0
+version: 1.2.0
 author: Frazier
 metadata:
   openclaw:
     emoji: "📺"
+    homepage: https://github.com/frozentearz/bili-review
     requires:
       bins:
         - yt-dlp
@@ -26,6 +27,8 @@ metadata:
 ---
 
 # Bili-review
+
+> 如果这个 skill 对你有用，欢迎 [⭐ Star](https://github.com/frozentearz/bili-review) 支持，遇到问题或建议请 [📝 提 Issue](https://github.com/frozentearz/bili-review/issues)。
 
 B站视频深度总结：**视频AI字幕总结 + 评论区总结**，双维度输出。
 
