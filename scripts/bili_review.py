@@ -103,10 +103,13 @@ def get_video_info(bvid: str) -> dict:
     if data.get('code') != 0:
         raise RuntimeError(f"获取视频信息失败: {data.get('message')}")
     d = data['data']
+    pubdate_ts = d.get('pubdate', 0)
+    pubdate_str = time.strftime('%Y-%m-%d', time.localtime(pubdate_ts)) if pubdate_ts else '未知'
     return {
         'aid': d['aid'],
         'title': d['title'],
         'author': d['owner']['name'],
+        'pubdate': pubdate_str,
         'stats': {
             'view': d['stat']['view'],
             'like': d['stat']['like'],
@@ -244,6 +247,10 @@ def cmd_status(args) -> None:
 
 # ---------- 评论区 ----------
 
+def fmt_date(ts: int) -> str:
+    return time.strftime('%Y-%m-%d', time.localtime(ts)) if ts else '未知'
+
+
 # 楼层爬取公式: 楼层 = min(200, ceil(评论数×30% ÷ 20) × 20)
 # 数学性质: 单调不降, 20条/页对齐, 自动封顶200楼(10页)
 def floor_limit(total: int) -> int:
@@ -292,6 +299,7 @@ def fetch_replies(aid: int, rpid: int, max_replies: int = 60) -> list:
             collected.append({
                 'like': r.get('like', 0),
                 'author': r.get('member', {}).get('uname', '匿名'),
+                'date': fmt_date(r.get('ctime', 0)),
                 'text': text,
             })
             if len(collected) >= max_replies:
@@ -391,6 +399,7 @@ def fetch_comments(bvid: str, limit: int = 200, include_replies: bool = False, i
                     'rpid': rpid,
                     'like': r.get('like', 0),
                     'author': r.get('member', {}).get('uname', '匿名'),
+                    'date': fmt_date(r.get('ctime', 0)),
                     'text': text,
                     'rcount': r.get('rcount', 0),
                     'replies': [],
@@ -402,6 +411,7 @@ def fetch_comments(bvid: str, limit: int = 200, include_replies: bool = False, i
                         c['replies'].append({
                             'like': er.get('like', 0),
                             'author': er.get('member', {}).get('uname', '匿名'),
+                            'date': fmt_date(er.get('ctime', 0)),
                             'text': er_text,
                         })
                 comments.append(c)
@@ -444,15 +454,18 @@ def print_comments_list(result: dict, include_meta: bool = True) -> None:
         print(f"# 视频: {info['title']}")
         print(f"# BVID: {info.get('bvid', '')}")
         print(f"# UP主: {info['author']}")
+        print(f"# 发布时间: {info.get('pubdate', '')}")
         s = info['stats']
         print(f"# 播放: {fmt_num(s['view'])} / 点赞: {fmt_num(s['like'])} / 评论: {fmt_num(s['comment'])}")
         print(f"# 评论总数(接口返回): {fmt_num(result['total'])}")
         print()
     print(f"## 热门评论 TOP {len(result['comments'])}")
     for i, c in enumerate(result['comments'], 1):
-        print(f"{i}. [点赞 {fmt_num(c['like'])}] {c['author']}: {c['text']}")
+        date_str = f"[{c['date']}] " if c.get('date') else ""
+        print(f"{i}. {date_str}[点赞 {fmt_num(c['like'])}] {c['author']}: {c['text']}")
         for j, r in enumerate(c.get('replies', []), 1):
-            print(f"   └ 楼中楼{j}. [点赞 {fmt_num(r['like'])}] {r['author']}: {r['text']}")
+            r_date_str = f"[{r['date']}] " if r.get('date') else ""
+            print(f"   └ 楼中楼{j}. {r_date_str}[点赞 {fmt_num(r['like'])}] {r['author']}: {r['text']}")
 
 
 # ---------- 字幕 ----------
@@ -523,6 +536,7 @@ def print_subtitle_output(bvid: str, lang: str) -> None:
     print(f"# 视频: {info['title']}")
     print(f"# BVID: {bvid}")
     print(f"# UP主: {info['author']}")
+    print(f"# 发布时间: {info.get('pubdate', '')}")
     print(f"# 播放: {fmt_num(s['view'])} / 点赞: {fmt_num(s['like'])} / 评论: {fmt_num(s['comment'])}")
     print(f"# 字幕语言: {lang or 'ai-zh'}")
     print()
@@ -588,6 +602,7 @@ def main():
             print(f"# 视频: {info['title']}")
             print(f"# BVID: {bvid}")
             print(f"# UP主: {info['author']}")
+            print(f"# 发布时间: {info.get('pubdate', '')}")
             print(f"# 播放: {fmt_num(s['view'])} / 点赞: {fmt_num(s['like'])} / 评论: {fmt_num(s['comment'])}")
             print()
             print("## 字幕")
