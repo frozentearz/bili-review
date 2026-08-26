@@ -353,6 +353,170 @@
     });
   }
 
+  // ==========================================
+  // WBI 签名与纯 JS MD5 引擎 (用于解除官方 AI 字幕限制)
+  // ==========================================
+  function md5(string) {
+    function rotateLeft(lValue, iShiftBits) {
+      return (lValue << iShiftBits) | (lValue >>> (32 - iShiftBits));
+    }
+    function addUnsigned(lX, lY) {
+      const lX8 = lX & 0x80000000;
+      const lY8 = lY & 0x80000000;
+      const lX4 = lX & 0x40000000;
+      const lY4 = lY & 0x40000000;
+      const lResult = (lX & 0x3fffffff) + (lY & 0x3fffffff);
+      if (lX4 & lY4) return lResult ^ 0x80000000 ^ lX8 ^ lY8;
+      if (lX4 | lY4) {
+        if (lResult & 0x40000000) return lResult ^ 0xc0000000 ^ lX8 ^ lY8;
+        return lResult ^ 0x40000000 ^ lX8 ^ lY8;
+      }
+      return lResult ^ lX8 ^ lY8;
+    }
+    function F(x, y, z) { return (x & y) | (~x & z); }
+    function G(x, y, z) { return (x & z) | (y & ~z); }
+    function H(x, y, z) { return x ^ y ^ z; }
+    function I(x, y, z) { return y ^ (x | ~z); }
+    function FF(a, b, c, d, x, s, ac) {
+      a = addUnsigned(a, addUnsigned(addUnsigned(F(b, c, d), x), ac));
+      return addUnsigned(rotateLeft(a, s), b);
+    }
+    function GG(a, b, c, d, x, s, ac) {
+      a = addUnsigned(a, addUnsigned(addUnsigned(G(b, c, d), x), ac));
+      return addUnsigned(rotateLeft(a, s), b);
+    }
+    function HH(a, b, c, d, x, s, ac) {
+      a = addUnsigned(a, addUnsigned(addUnsigned(H(b, c, d), x), ac));
+      return addUnsigned(rotateLeft(a, s), b);
+    }
+    function II(a, b, c, d, x, s, ac) {
+      a = addUnsigned(a, addUnsigned(addUnsigned(I(b, c, d), x), ac));
+      return addUnsigned(rotateLeft(a, s), b);
+    }
+    function convertToWordArray(string) {
+      let lWordCount;
+      const lMessageLength = string.length;
+      const lNumberOfWords_temp1 = lMessageLength + 8;
+      const lNumberOfWords_temp2 = (lNumberOfWords_temp1 - (lNumberOfWords_temp1 % 64)) / 64;
+      const lNumberOfWords = (lNumberOfWords_temp2 + 1) * 16;
+      const lWordArray = Array(lNumberOfWords - 1);
+      let lBytePosition = 0;
+      let lByteCount = 0;
+      while (lByteCount < lMessageLength) {
+        lWordCount = (lByteCount - (lByteCount % 4)) / 4;
+        lBytePosition = (lByteCount % 4) * 8;
+        lWordArray[lWordCount] = lWordArray[lWordCount] | (string.charCodeAt(lByteCount) << lBytePosition);
+        lByteCount++;
+      }
+      lWordCount = (lByteCount - (lByteCount % 4)) / 4;
+      lBytePosition = (lByteCount % 4) * 8;
+      lWordArray[lWordCount] = lWordArray[lWordCount] | (0x80 << lBytePosition);
+      lWordArray[lNumberOfWords - 2] = lMessageLength << 3;
+      lWordArray[lNumberOfWords - 1] = lMessageLength >>> 29;
+      return lWordArray;
+    }
+    function wordToHex(lValue) {
+      let WordToHexValue = '', WordToHexValue_temp = '', lByte, lCount;
+      for (lCount = 0; lCount <= 3; lCount++) {
+        lByte = (lValue >>> (lCount * 8)) & 255;
+        WordToHexValue_temp = '0' + lByte.toString(16);
+        WordToHexValue = WordToHexValue + WordToHexValue_temp.substr(WordToHexValue_temp.length - 2, 2);
+      }
+      return WordToHexValue;
+    }
+    const x = convertToWordArray(unescape(encodeURIComponent(string)));
+    let k, AA, BB, CC, DD, a = 0x67452301, b = 0xefcdab89, c = 0x98badcfe, d = 0x10325476;
+    const S11 = 7, S12 = 12, S13 = 17, S14 = 22;
+    const S21 = 5, S22 = 9, S23 = 14, S24 = 20;
+    const S31 = 4, S32 = 11, S33 = 16, S34 = 23;
+    const S41 = 6, S42 = 10, S43 = 15, S44 = 21;
+    for (k = 0; k < x.length; k += 16) {
+      AA = a; BB = b; CC = c; DD = d;
+      a = FF(a, b, c, d, x[k + 0], S11, 0xd76aa478); d = FF(d, a, b, c, x[k + 1], S12, 0xe8c7b756);
+      c = FF(c, d, a, b, x[k + 2], S13, 0x242070db); b = FF(b, c, d, a, x[k + 3], S14, 0xc1bdceee);
+      a = FF(a, b, c, d, x[k + 4], S11, 0xf57c0faf); d = FF(d, a, b, c, x[k + 5], S12, 0x4787c62a);
+      c = FF(c, d, a, b, x[k + 6], S13, 0xa8304613); b = FF(b, c, d, a, x[k + 7], S14, 0xfd469501);
+      a = FF(a, b, c, d, x[k + 8], S11, 0x698098d8); d = FF(d, a, b, c, x[k + 9], S12, 0x8b44f7af);
+      c = FF(c, d, a, b, x[k + 10], S13, 0xffff5bb1); b = FF(b, c, d, a, x[k + 11], S14, 0x895cd7be);
+      a = FF(a, b, c, d, x[k + 12], S11, 0x6b901122); d = FF(d, a, b, c, x[k + 13], S12, 0xfd987193);
+      c = FF(c, d, a, b, x[k + 14], S13, 0xa679438e); b = FF(b, c, d, a, x[k + 15], S14, 0x49b40821);
+      a = GG(a, b, c, d, x[k + 1], S21, 0xf61e2562); d = GG(d, a, b, c, x[k + 6], S22, 0xc040b340);
+      c = GG(c, d, a, b, x[k + 11], S23, 0x265e5a51); b = GG(b, c, d, a, x[k + 0], S24, 0xe9b6c7aa);
+      a = GG(a, b, c, d, x[k + 5], S21, 0xd62f105d); d = GG(d, a, b, c, x[k + 10], S22, 0x2441453);
+      c = GG(c, d, a, b, x[k + 15], S23, 0xd8a1e681); b = GG(b, c, d, a, x[k + 4], S24, 0xe7d3fbc8);
+      a = GG(a, b, c, d, x[k + 9], S21, 0x21e1cde6); d = GG(d, a, b, c, x[k + 14], S22, 0xc33707d6);
+      c = GG(c, d, a, b, x[k + 3], S23, 0xf4d50d87); b = GG(b, c, d, a, x[k + 8], S24, 0x455a14ed);
+      a = GG(a, b, c, d, x[k + 13], S21, 0xa9e3e905); d = GG(d, a, b, c, x[k + 2], S22, 0xfcefa3f8);
+      c = GG(c, d, a, b, x[k + 7], S23, 0x676f02d9); b = GG(b, c, d, a, x[k + 12], S24, 0x8d2a4c8a);
+      a = HH(a, b, c, d, x[k + 5], S31, 0xfffa3942); d = HH(d, a, b, c, x[k + 8], S32, 0x8771f681);
+      c = HH(c, d, a, b, x[k + 11], S33, 0x6d9d6122); b = HH(b, c, d, a, x[k + 14], S34, 0xfde5380c);
+      a = HH(a, b, c, d, x[k + 1], S31, 0xa4beea44); d = HH(d, a, b, c, x[k + 4], S32, 0x4bdecfa9);
+      c = HH(c, d, a, b, x[k + 7], S33, 0xf6bb4b60); b = HH(b, c, d, a, x[k + 10], S34, 0xbebfbc70);
+      a = HH(a, b, c, d, x[k + 13], S31, 0x289b7ec6); d = HH(d, a, b, c, x[k + 0], S32, 0xeaa127fa);
+      c = HH(c, d, a, b, x[k + 3], S33, 0xd4ef3085); b = HH(b, c, d, a, x[k + 6], S34, 0x4881d05);
+      a = HH(a, b, c, d, x[k + 9], S31, 0xd9d4d039); d = HH(d, a, b, c, x[k + 12], S32, 0xe6db99e5);
+      c = HH(c, d, a, b, x[k + 15], S33, 0x1fa27cf8); b = HH(b, c, d, a, x[k + 2], S34, 0xc4ac5665);
+      a = II(a, b, c, d, x[k + 0], S41, 0xf4292244); d = II(d, a, b, c, x[k + 7], S42, 0x432aff97);
+      c = II(c, d, a, b, x[k + 14], S43, 0xab9423a7); b = II(b, c, d, a, x[k + 5], S44, 0xfc93a039);
+      a = II(a, b, c, d, x[k + 12], S41, 0x655b59c3); d = II(d, a, b, c, x[k + 3], S42, 0x8f0ccc92);
+      c = II(c, d, a, b, x[k + 10], S43, 0xffeff47d); b = II(b, c, d, a, x[k + 1], S44, 0x85845dd1);
+      a = II(a, b, c, d, x[k + 8], S41, 0x6fa87e4f); d = II(d, a, b, c, x[k + 15], S42, 0xfe2ce6e0);
+      c = II(c, d, a, b, x[k + 6], S43, 0xa3014314); b = II(b, c, d, a, x[k + 13], S44, 0x4e0811a1);
+      a = II(a, b, c, d, x[k + 4], S41, 0xf7537e82); d = II(d, a, b, c, x[k + 11], S42, 0xbd3af235);
+      c = II(c, d, a, b, x[k + 2], S43, 0x2ad7d2bb); b = II(b, c, d, a, x[k + 9], S44, 0xeb86d391);
+      a = addUnsigned(a, AA); b = addUnsigned(b, BB); c = addUnsigned(c, CC); d = addUnsigned(d, DD);
+    }
+    return (wordToHex(a) + wordToHex(b) + wordToHex(c) + wordToHex(d)).toLowerCase();
+  }
+
+  const MIXIN_KEY_ENC_TAB = [
+    46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49,
+    33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13, 37, 48, 7, 16, 24, 55, 40,
+    61, 26, 17, 0, 1, 60, 51, 30, 4, 22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11,
+    36, 20, 34, 44, 52
+  ];
+
+  let cachedWbiKeys = null;
+  let cachedWbiTime = 0;
+
+  async function getWbiKeys() {
+    const now = Date.now();
+    if (cachedWbiKeys && now - cachedWbiTime < 1000 * 60 * 10) {
+      return cachedWbiKeys;
+    }
+    try {
+      const navRaw = await gmFetch('https://api.bilibili.com/x/web-interface/nav', { timeout: 6000 });
+      const navJson = JSON.parse(navRaw);
+      const wbiImg = navJson.data?.wbi_img;
+      if (wbiImg) {
+        const imgKey = wbiImg.img_url.split('/').pop().split('.')[0];
+        const subKey = wbiImg.sub_url.split('/').pop().split('.')[0];
+        cachedWbiKeys = { imgKey, subKey };
+        cachedWbiTime = now;
+        return cachedWbiKeys;
+      }
+    } catch (e) {
+      console.warn('[bili-review] 获取 WBI 密钥失败:', e);
+    }
+    return { imgKey: '7cd084941338484a82710541930c82b2', subKey: '492b161900b24a498de897ea6d653d87' };
+  }
+
+  function signWbiParams(params, imgKey, subKey) {
+    const rawKey = imgKey + subKey;
+    const mixinKey = MIXIN_KEY_ENC_TAB.map((n) => rawKey[n]).join('').slice(0, 32);
+    const currTime = Math.round(Date.now() / 1000);
+    const p = { ...params, wts: currTime };
+    const sortedKeys = Object.keys(p).sort();
+    const queryParts = [];
+    for (const k of sortedKeys) {
+      const v = String(p[k]).replace(/[!'()*]/g, '');
+      queryParts.push(`${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
+    }
+    const queryString = queryParts.join('&');
+    const wbiSign = md5(queryString + mixinKey);
+    return `${queryString}&w_rid=${wbiSign}`;
+  }
+
   async function fetchBiliVideoData(bvid) {
     // 1. 抓取视频核心元数据（带 8 秒超时保护）
     const viewRaw = await gmFetch(`https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`, { timeout: 8000 });
@@ -373,14 +537,38 @@
       desc: data.desc || ''
     };
 
-    // 2. 抓取字幕（带 6 秒隔离超时保护，失败或无字幕平滑跳过）
+    // 2. 抓取字幕（带 6 秒隔离超时保护，支持 WBI v2 官方全语言 AI 字幕）
     let subtitleText = '';
     try {
-      const playerRaw = await gmFetch(`https://api.bilibili.com/x/player/v2?bvid=${bvid}&cid=${cid}`, { timeout: 6000 });
-      const playerJson = JSON.parse(playerRaw);
-      const subList = playerJson.data?.subtitle?.subtitles || [];
+      let subList = [];
+      try {
+        const { imgKey, subKey } = await getWbiKeys();
+        const signedQuery = signWbiParams({ aid, cid, bvid }, imgKey, subKey);
+        const playerRaw = await gmFetch(`https://api.bilibili.com/x/player/wbi/v2?${signedQuery}`, {
+          timeout: 6000,
+          headers: {
+            'Referer': `https://www.bilibili.com/video/${bvid}`
+          }
+        });
+        const playerJson = JSON.parse(playerRaw);
+        subList = playerJson.data?.subtitle?.subtitles || [];
+      } catch (wbiErr) {
+        console.warn('[bili-review] WBI 字幕接口异常，尝试旧版接口:', wbiErr.message);
+      }
+
+      // 降级兼容：如果 wbi/v2 没拿到，尝试旧版 player/v2
+      if (subList.length === 0) {
+        try {
+          const legacyRaw = await gmFetch(`https://api.bilibili.com/x/player/v2?bvid=${bvid}&cid=${cid}`, { timeout: 4000 });
+          const legacyJson = JSON.parse(legacyRaw);
+          subList = legacyJson.data?.subtitle?.subtitles || [];
+        } catch (_) {}
+      }
+
       if (subList.length > 0) {
-        let subUrl = subList[0].subtitle_url;
+        // 优先匹配中文 AI (ai-zh / zh-CN / zh-Hans) 或第一条可用字幕
+        const targetSub = subList.find((s) => s.lan === 'ai-zh' || s.lan === 'zh-CN' || s.lan === 'zh-Hans') || subList[0];
+        let subUrl = targetSub.subtitle_url;
         if (subUrl.startsWith('//')) subUrl = 'https:' + subUrl;
         const subContentRaw = await gmFetch(subUrl, { timeout: 6000 });
         const subData = JSON.parse(subContentRaw);
@@ -1827,16 +2015,23 @@ ${safeComments}
     return parseBvidFromUrl(window.location.href);
   }
 
+  let lastCurrentBtnState = '';
   function updateCurrentVideoBtn() {
     const btn = document.getElementById('bili-current-video-btn');
     if (!btn) return;
     const bvid = getCurrentPageBvid();
     if (!bvid) {
-      btn.style.display = 'none';
+      if (btn.style.display !== 'none') btn.style.display = 'none';
+      lastCurrentBtnState = '';
       return;
     }
-    btn.style.display = 'inline-flex';
+    if (btn.style.display !== 'inline-flex') btn.style.display = 'inline-flex';
     const task = store.getTask(bvid);
+    const status = task ? task.status : 'none';
+    const stateKey = `${bvid}_${status}`;
+    if (stateKey === lastCurrentBtnState) return;
+    lastCurrentBtnState = stateKey;
+
     if (task && task.status === TaskStatus.COMPLETED) {
       btn.innerHTML = `<span>📑 查看本视频总结</span>`;
       btn.classList.add('completed-state');
@@ -2566,11 +2761,10 @@ ${safeComments}
 
   function scanAndInjectVideoCards() {
     const cardSelectors = [
-      '.bili-video-card__wrap',
       '.bili-video-card',
       '.feed-card',
       '.video-card',
-      '.bili-video-card__image--wrap'
+      '.rank-item'
     ];
 
     const cards = document.querySelectorAll(cardSelectors.join(', '));
@@ -2636,15 +2830,25 @@ ${safeComments}
   }
 
   // ==========================================
-  // 9. 启动入口
+  // 9. 启动入口（带 250ms 防抖限频节流保护）
   // ==========================================
   function main() {
     initUI();
     scanAndInjectVideoCards();
 
+    let scanTimer = null;
+    let lastUrl = typeof window !== 'undefined' ? window.location.href : '';
+
     const observer = new MutationObserver(() => {
-      scanAndInjectVideoCards();
-      updateCurrentVideoBtn();
+      if (scanTimer) return;
+      scanTimer = setTimeout(() => {
+        scanTimer = null;
+        scanAndInjectVideoCards();
+        if (typeof window !== 'undefined' && window.location.href !== lastUrl) {
+          lastUrl = window.location.href;
+          updateCurrentVideoBtn();
+        }
+      }, 250);
     });
 
     observer.observe(document.body, {
