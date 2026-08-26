@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili 视频深度研报总结 (bili-review 2.0)
 // @namespace    https://clawhub.ai/frozentearz/skills/bili-review
-// @version      2.2.0
+// @version      2.1.1
 // @description  边刷B站边看AI深度研报！双源交叉检视（字幕观点 + 楼中楼实测证据），右侧悬浮Dock多任务队列与 Markdown 研报阅读器。支持 F/Esc 键全屏控制与拖拽定宽。
 // @author       Frazier
 // @match        *://*.bilibili.com/*
@@ -61,7 +61,7 @@
   const DEFAULT_CONFIG = {
     provider: 'Anthropic',
     baseUrl: 'http://127.0.0.1:62999',
-    apiKey: '69d028079c3b4d5d1c018188154f21db99abdb00c5522bf6c44e67466d9c0865',
+    apiKey: '',
     defaultModel: 'claude-3-7-sonnet-20250219',
     targetModel: 'claude-opus-4-8',
     activeModel: 'claude-opus-4-8',

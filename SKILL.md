@@ -1,7 +1,7 @@
 ---
 name: bili-review
 description: 获取视频AI字幕总结+弹幕时序分析+读取【评论区楼中楼】（痛点）并总结。三源情报研报生成器（视频字幕 UP 主单方主张 + 高能弹幕时序共识/即时纠错 + 评论/楼中楼实测检验证据）。AI字幕需要获取浏览器Cookie获取登录状态。触发词：B站视频总结、B站总结、B站评论、看评论区、视频讲了什么、B站深度分析、弹幕分析。
-version: 2.1.0
+version: 2.1.1
 author: Frazier
 metadata:
   openclaw:

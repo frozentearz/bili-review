@@ -4,4 +4,6 @@ cookies.txt
 # 本地运行产物与草稿
 __pycache__/
 *.pyc
+*.zip
 SKILL-v2.md
+
