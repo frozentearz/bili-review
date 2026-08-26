@@ -508,8 +508,8 @@ def get_wbi_keys(cookie_file: Path = None) -> tuple:
         if img_key and sub_key:
             return img_key, sub_key
     except Exception as e:
-        print(f"提示: 动态获取 WBI 密钥异常 ({e})，使用通用默认密钥", file=sys.stderr)
-    return '7cd084941338484aae1ad9425b84077c', '4932caff0ff746eab6f01bf08b70ac45'
+        raise RuntimeError(f"动态获取 WBI 密钥异常: {e}")
+    raise RuntimeError("未能从 B 站动态获取 WBI 验签参数")
 
 
 def sign_wbi_params(params: dict, img_key: str, sub_key: str) -> dict:
@@ -581,13 +581,61 @@ def fetch_subtitle_wbi(bvid: str, lang: str = None) -> str:
     if not body:
         raise RuntimeError("字幕内容为空")
 
-    out = []
+    return format_subtitle_list(body)
+
+
+def format_seconds_to_time(seconds: float) -> str:
+    """格式化秒数为 [MM:SS]."""
+    s = int(seconds)
+    mm = str(s // 60).zfill(2)
+    ss = str(s % 60).zfill(2)
+    return f"[{mm}:{ss}]"
+
+
+def format_subtitle_list(body: list) -> str:
+    """将字幕 body 列表转换为去重聚合后的结构化时间戳文本（滑动去重 + 自然整句聚合）."""
+    if not body or not isinstance(body, list):
+        return ""
+    cleaned_items = []
+    last_text = ""
     for item in body:
-        content = (item.get('content') or '').strip()
-        if content:
-            if not out or out[-1] != content:
-                out.append(content)
-    return '\n'.join(out)
+        content = (item.get("content") or "").strip()
+        if not content or content == last_text:
+            continue
+        if last_text and content.startswith(last_text):
+            if cleaned_items:
+                cleaned_items[-1]["content"] = content
+                cleaned_items[-1]["to"] = float(item.get("to") or cleaned_items[-1]["to"])
+                last_text = content
+                continue
+        elif last_text and last_text.startswith(content):
+            continue
+        cleaned_items.append({
+            "from": float(item.get("from") or 0),
+            "to": float(item.get("to") or 0),
+            "content": content
+        })
+        last_text = content
+
+    sentences = []
+    current_sentence = ""
+    sentence_start_time = None
+    for i, item in enumerate(cleaned_items):
+        if sentence_start_time is None:
+            sentence_start_time = item["from"]
+        if current_sentence:
+            current_sentence += (" " if re.search(r'[a-zA-Z0-9]$', current_sentence) else "") + item["content"]
+        else:
+            current_sentence = item["content"]
+        next_item = cleaned_items[i + 1] if i + 1 < len(cleaned_items) else None
+        is_time_gap = next_item and (next_item["from"] - item["to"] > 2.5)
+        is_punctuation = bool(re.search(r'[。！？!?；;\n]$', item["content"]))
+        is_len = len(current_sentence) >= 50
+        if not next_item or is_time_gap or is_punctuation or is_len:
+            sentences.append(f"{format_seconds_to_time(sentence_start_time)} {current_sentence.strip()}")
+            current_sentence = ""
+            sentence_start_time = None
+    return "\n".join(sentences)
 
 
 def fetch_subtitle(bvid: str, lang: str = None) -> str:

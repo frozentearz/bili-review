@@ -614,9 +614,10 @@
         return cachedWbiKeys;
       }
     } catch (e) {
-      console.warn('[bili-review] 获取 WBI 密钥失败:', e);
+      console.warn('[bili-review] 动态获取 WBI 密钥失败:', e);
+      throw new Error('未能从 B 站动态获取 WBI 验签参数: ' + (e.message || e));
     }
-    return { imgKey: '7cd084941338484aae1ad9425b84077c', subKey: '4932caff0ff746eab6f01bf08b70ac45' };
+    throw new Error('未能从 B 站动态获取 WBI 验签参数');
   }
 
   function signWbiParams(params, imgKey, subKey) {
@@ -658,7 +659,23 @@
     // 2. 严格按 aid/cid 独立抓取字幕（支持原生极速直读、WBI v2 官方 AI 字幕与多重容灾降级）
     let subtitleText = '';
     try {
-      let subList = [];
+      async function downloadSubFromList(list) {
+        if (!Array.isArray(list) || list.length === 0) return '';
+        const targetSub = list.find((s) => s.lan === 'ai-zh' || s.lan === 'zh-CN' || s.lan === 'zh-Hans') ||
+                          list.find((s) => s.lan && s.lan.startsWith('zh')) ||
+                          list.find((s) => s && (s.subtitle_url || s.url)) ||
+                          list[0];
+        let subUrl = targetSub?.subtitle_url || targetSub?.url;
+        if (!subUrl) return '';
+        if (subUrl.startsWith('//')) subUrl = 'https:' + subUrl;
+        console.log('[bili-review] [2/4] 正在下载字幕文件:', subUrl);
+        const subContentRaw = await gmFetch(subUrl, { timeout: 8000 });
+        const subData = JSON.parse(subContentRaw);
+        if (Array.isArray(subData.body)) {
+          return formatSubtitleList(subData.body);
+        }
+        return '';
+      }
 
       // 2.0 当前播放视频极速通道（穿透沙箱直接提取）
       try {
@@ -679,8 +696,11 @@
                              state?.subtitle?.list ||
                              (pageWin.player?.getSubtitle ? pageWin.player.getSubtitle() : null) || [];
           if (Array.isArray(inPageSubs) && inPageSubs.length > 0) {
-            subList = inPageSubs.filter((s) => s && (s.subtitle_url || s.url));
-            console.log(`[bili-review] [1/4] ✅ 成功从宿主页面直读提取到 ${subList.length} 条字幕:`, subList);
+            const validSubs = inPageSubs.filter((s) => s && (s.subtitle_url || s.url));
+            if (validSubs.length > 0) {
+              console.log(`[bili-review] [1/4] ✅ 成功从宿主页面直读提取到 ${validSubs.length} 条字幕`);
+              subtitleText = await downloadSubFromList(validSubs);
+            }
           }
         }
       } catch (inPageErr) {
@@ -688,7 +708,7 @@
       }
 
       // 2.1 WBI v2 动态验签直连（主通路 1：aid + cid + bvid）
-      if (subList.length === 0) {
+      if (!subtitleText) {
         try {
           const { imgKey, subKey } = await getWbiKeys();
           const signedQuery = signWbiParams({ aid, cid, bvid }, imgKey, subKey);
@@ -699,9 +719,10 @@
             }
           });
           const playerJson = JSON.parse(playerRaw);
-          subList = playerJson.data?.subtitle?.subtitles || [];
-          if (subList.length > 0) {
-            console.log(`[bili-review] [1/4] ✅ WBI v2 接口提取到 ${subList.length} 条字幕`);
+          const subs = playerJson.data?.subtitle?.subtitles || [];
+          if (subs.length > 0) {
+            console.log(`[bili-review] [1/4] ✅ WBI v2 接口提取到 ${subs.length} 条字幕`);
+            subtitleText = await downloadSubFromList(subs);
           } else if (playerJson.data?.need_login_subtitle) {
             console.warn('[bili-review] ⚠️ WBI 接口提示 need_login_subtitle=true (需登录态凭据)');
           }
@@ -711,7 +732,7 @@
       }
 
       // 2.2 WBI v2 备用签名（主通路 2：aid + cid）
-      if (subList.length === 0) {
+      if (!subtitleText) {
         try {
           const { imgKey, subKey } = await getWbiKeys();
           const signedQuery = signWbiParams({ aid, cid }, imgKey, subKey);
@@ -722,39 +743,29 @@
             }
           });
           const playerJson = JSON.parse(playerRaw);
-          subList = playerJson.data?.subtitle?.subtitles || [];
+          const subs = playerJson.data?.subtitle?.subtitles || [];
+          if (subs.length > 0) {
+            subtitleText = await downloadSubFromList(subs);
+          }
         } catch (_) {}
       }
 
       // 2.3 降级兼容：尝试旧版 player/v2
-      if (subList.length === 0) {
+      if (!subtitleText) {
         try {
           const legacyRaw = await gmFetch(`https://api.bilibili.com/x/player/v2?bvid=${bvid}&cid=${cid}`, { timeout: 4000 });
           const legacyJson = JSON.parse(legacyRaw);
-          subList = legacyJson.data?.subtitle?.subtitles || [];
+          const subs = legacyJson.data?.subtitle?.subtitles || [];
+          if (subs.length > 0) {
+            subtitleText = await downloadSubFromList(subs);
+          }
         } catch (legacyErr) {
           console.warn('[bili-review] 尝试旧版 player/v2 接口未获取字幕:', legacyErr.message);
         }
       }
 
-      if (subList.length > 0) {
-        // 智能匹配字幕（优先 ai-zh / zh-CN / zh-Hans / zh-Hant 等中文，或任意可用字幕）
-        const targetSub = subList.find((s) => s.lan === 'ai-zh' || s.lan === 'zh-CN' || s.lan === 'zh-Hans') ||
-                          subList.find((s) => s.lan && s.lan.startsWith('zh')) ||
-                          subList.find((s) => s.subtitle_url || s.url) ||
-                          subList[0];
-
-        let subUrl = targetSub.subtitle_url || targetSub.url;
-        if (subUrl) {
-          if (subUrl.startsWith('//')) subUrl = 'https:' + subUrl;
-          console.log('[bili-review] [2/4] 正在下载字幕文件:', subUrl);
-          const subContentRaw = await gmFetch(subUrl, { timeout: 8000 });
-          const subData = JSON.parse(subContentRaw);
-          if (Array.isArray(subData.body)) {
-            subtitleText = formatSubtitleList(subData.body);
-            console.log(`[bili-review] [3/4] ✅ 字幕下载并清洗成功: ${subtitleText.length} 字符`);
-          }
-        }
+      if (subtitleText) {
+        console.log(`[bili-review] [3/4] ✅ 字幕下载并清洗成功: ${subtitleText.length} 字符`);
       }
     } catch (e) {
       console.warn('[bili-review] 字幕提取未获取或超时，使用视频简介作为备选:', e.message);
@@ -1590,6 +1601,7 @@ ${safeComments}
       text-decoration: none;
       cursor: pointer;
       transition: color 0.15s ease;
+      min-height: 36px;
     }
     .bili-task-title:hover {
       color: #00AEEC !important;
