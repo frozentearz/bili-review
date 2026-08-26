@@ -136,7 +136,8 @@
     EXTRACTING: 'extracting',
     SUMMARIZING: 'summarizing',
     COMPLETED: 'completed',
-    FAILED: 'failed'
+    FAILED: 'failed',
+    INTERRUPTED: 'interrupted'
   };
 
   class TaskStore {
@@ -171,6 +172,8 @@
         progress: '排队等待...',
         summary: '',
         error: '',
+        duration: 0,
+        startTime: Date.now(),
         createdAt: Date.now(),
         updatedAt: Date.now()
       };
@@ -224,11 +227,14 @@
         }
         if (raw) {
           const entries = typeof raw === 'string' ? JSON.parse(raw) : raw;
-          if (Array.isArray(entries)) {
-            this.tasks = new Map(entries);
-          } else if (typeof entries === 'object' && entries !== null) {
-            this.tasks = new Map(Object.entries(entries));
-          }
+          const entryList = Array.isArray(entries) ? entries : (typeof entries === 'object' && entries !== null ? Object.entries(entries) : []);
+          entryList.forEach(([_, t]) => {
+            if (t && (t.status === TaskStatus.EXTRACTING || t.status === TaskStatus.SUMMARIZING)) {
+              t.status = TaskStatus.INTERRUPTED;
+              t.progress = '⚠️ 已中断';
+            }
+          });
+          this.tasks = new Map(entryList);
         }
       } catch (e) {
         console.error('[bili-review] 加载任务缓存失败:', e);
@@ -278,28 +284,31 @@
 
   async function gmFetch(url, options = {}) {
     const timeoutMs = options.timeout || 15000;
+    const isBiliDomain = url.includes('bilibili.com') || url.includes('hdslb.com');
 
-    // 1. 优先采用浏览器原生 fetch（同域/B站子域免授权，极速直达且自动附带登录态）
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
-      const fetchOpts = {
-        method: options.method || 'GET',
-        headers: options.headers || {},
-        body: options.body || null,
-        signal: controller.signal,
-        credentials: url.includes('bilibili.com') ? 'include' : 'same-origin'
-      };
-      const res = await fetch(url, fetchOpts);
-      clearTimeout(timer);
-      if (res.status >= 200 && res.status < 300) {
-        return await res.text();
+    // 1. 若为 B 站同源/子域名，优先使用浏览器原生 fetch（自动携带 Cookie）
+    if (isBiliDomain) {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), Math.min(timeoutMs, 8000));
+        const fetchOpts = {
+          method: options.method || 'GET',
+          headers: options.headers || {},
+          body: options.body || null,
+          signal: controller.signal,
+          credentials: 'include'
+        };
+        const res = await fetch(url, fetchOpts);
+        clearTimeout(timer);
+        if (res.status >= 200 && res.status < 300) {
+          return await res.text();
+        }
+      } catch (fetchErr) {
+        // 若原生 fetch 失败，自动降级至 GM_xmlhttpRequest
       }
-    } catch (fetchErr) {
-      // 若原生 fetch 遇到跨域或网络问题，自动降级至 GM_xmlhttpRequest
     }
 
-    // 2. 降级方案：GM_xmlhttpRequest（用于跨源请求）
+    // 2. 跨域 AI 接口 (如 127.0.0.1:62999 / DeepSeek / Claude / Ollama) 1毫秒直连 GM_xmlhttpRequest，彻底杜绝跨域挂起
     return new Promise((resolve, reject) => {
       let isSettled = false;
       const watchdogTimer = setTimeout(() => {
@@ -922,7 +931,7 @@ ${safeComments}
       method: 'POST',
       headers,
       body: JSON.stringify(body),
-      timeout: 120000
+      timeout: 90000
     });
 
     let json;
@@ -951,9 +960,11 @@ ${safeComments}
   }
 
   async function executeSummaryTask(bvid, meta) {
+    const taskStartTime = Date.now();
     store.updateTask(bvid, {
       status: TaskStatus.EXTRACTING,
-      progress: '提取字幕、弹幕与评论中...',
+      progress: '抓取数据中...',
+      startTime: taskStartTime,
       error: ''
     });
 
@@ -965,15 +976,18 @@ ${safeComments}
         pic: videoInfo.pic || meta.pic || '',
         pubdate: videoInfo.pubdate || meta.pubdate || '',
         status: TaskStatus.SUMMARIZING,
-        progress: 'AI 正在总结中...'
+        progress: 'AI 总结中...',
+        startTime: Date.now()
       });
 
       const prompt = buildReviewPrompt(videoInfo, subtitleText, danmakuSummary, commentsText);
       const summaryResult = await callAiApi(prompt, bvid);
+      const duration = Math.max(1, Math.round((Date.now() - taskStartTime) / 1000));
 
       store.updateTask(bvid, {
         status: TaskStatus.COMPLETED,
-        progress: '已完成',
+        progress: '待查看',
+        duration,
         summary: summaryResult
       });
     } catch (err) {
@@ -1444,6 +1458,11 @@ ${safeComments}
       background: #FEE2E2;
       color: #DC2626;
       border: 1px solid #FCA5A5;
+    }
+    .bili-status-badge.interrupted {
+      background: #FEF3C7;
+      color: #D97706;
+      border: 1px solid #FCD34D;
     }
 
     /* 开发者测试用：重新总结按钮 */
@@ -2201,17 +2220,16 @@ ${safeComments}
           </button>
         </div>
         <div class="bili-drawer-actions">
-          <button class="bili-header-pill-btn" id="bili-fullscreen-btn" title="全屏 / 还原 (按 Tab 键)">
+          <button class="bili-header-pill-btn" id="bili-fullscreen-btn" title="切换全屏 / 收起 (按 Tab 键)">
             <svg id="bili-fullscreen-icon" viewBox="0 0 20 20" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M3 8V3h5M17 8V3h-5M3 12v5h5M17 12v5h-5"/>
             </svg>
             <span id="bili-fullscreen-text">全屏</span>
             <kbd class="bili-kbd-badge">Tab</kbd>
           </button>
-          <button class="bili-header-pill-btn" id="bili-close-btn" title="收起列表 (按 Esc 键)">
+          <button class="bili-header-pill-btn" id="bili-close-btn" title="收起总结抽屉">
             <span style="font-size: 13px; line-height: 1;">✕</span>
             <span id="bili-close-text">关闭</span>
-            <kbd class="bili-kbd-badge">Esc</kbd>
           </button>
         </div>
       </div>
@@ -2459,7 +2477,7 @@ ${safeComments}
       closeDock();
     });
 
-    // 全局快捷键 Tab 与 Esc 状态机
+    // 全局快捷键 Tab 3 态闭环轮转（关闭 -> 小屏 -> 全屏 -> 关闭）
     document.addEventListener('keydown', (e) => {
       const activeTag = document.activeElement ? document.activeElement.tagName : '';
       if (activeTag === 'INPUT' || activeTag === 'TEXTAREA' || document.activeElement?.isContentEditable) {
@@ -2471,16 +2489,21 @@ ${safeComments}
         e.preventDefault();
 
         if (!drawer.classList.contains('open')) {
+          // 状态 1: 关闭 -> 打开小屏
           openDock(false);
         } else if (!isDockFullscreen) {
+          // 状态 2: 小屏 -> 切换全屏
           setDockFullscreen(true);
         } else {
-          setDockFullscreen(false);
+          // 状态 3: 全屏 -> 关闭抽屉
+          closeDock();
         }
       } else if (e.key === 'Escape') {
-        if (drawer.classList.contains('open')) {
+        // 取消 Esc 关闭 Dock，仅在设置弹窗打开时关闭设置弹窗
+        const modal = document.getElementById('bili-settings-modal');
+        if (modal && modal.style.display !== 'none') {
           e.preventDefault();
-          closeDock();
+          closeSettingsModal();
         }
       }
     });
@@ -2500,6 +2523,21 @@ ${safeComments}
     renderTaskList();
     updateBadge();
     updateCurrentVideoBtn();
+
+    // 1 秒轻量级定时器：实时跳动生成中任务的耗时秒数，无需重新渲染整个 DOM
+    setInterval(() => {
+      const runningBadges = document.querySelectorAll('.bili-status-badge.summarizing');
+      if (runningBadges.length > 0) {
+        runningBadges.forEach((el) => {
+          const bvid = el.getAttribute('data-bvid');
+          const t = store.getTask(bvid);
+          if (t && t.status === TaskStatus.SUMMARIZING) {
+            const elapsed = Math.max(1, Math.round((Date.now() - (t.startTime || t.updatedAt)) / 1000));
+            el.textContent = `🤖 ${elapsed}s...`;
+          }
+        });
+      }
+    }, 1000);
   }
 
   function openDock(fullscreen = false) {
@@ -2537,7 +2575,7 @@ ${safeComments}
     isDockFullscreen = Boolean(fullscreen);
     if (isDockFullscreen) {
       drawer.classList.add('fullscreen');
-      if (textEl) textEl.textContent = '还原';
+      if (textEl) textEl.textContent = '收起';
       if (iconEl) {
         iconEl.innerHTML = `
           <path d="M8 3v5H3M12 3v5h5M8 17v-5H3M12 17v-5h5"/>
@@ -2545,7 +2583,7 @@ ${safeComments}
       }
     } else {
       drawer.classList.remove('fullscreen');
-      drawer.style.width = savedDockWidth || '460px';
+      drawer.style.width = savedDockWidth || '480px';
       if (textEl) textEl.textContent = '全屏';
       if (iconEl) {
         iconEl.innerHTML = `
@@ -2656,14 +2694,20 @@ ${safeComments}
         let badgeText = t.progress;
 
         if (t.status === TaskStatus.COMPLETED) {
-          badgeText = '✅ 已完成';
+          badgeText = '✅ 待查看';
         } else if (t.status === TaskStatus.SUMMARIZING) {
-          badgeText = '🤖 AI总结中...';
+          const elapsed = Math.max(1, Math.round((Date.now() - (t.startTime || t.updatedAt)) / 1000));
+          badgeText = `🤖 ${elapsed}s...`;
         } else if (t.status === TaskStatus.EXTRACTING) {
-          badgeText = '⏳ 抓取数据...';
+          badgeText = '⏳ 抓取中...';
+        } else if (t.status === TaskStatus.INTERRUPTED) {
+          badgeText = '⚠️ 已中断';
         } else if (t.status === TaskStatus.FAILED) {
           badgeText = '❌ 失败';
         }
+
+        const durationStr = (t.status === TaskStatus.COMPLETED && t.duration) ? ` · 耗时 ${t.duration}s` : '';
+        const timePrefix = t.status === TaskStatus.COMPLETED ? '总结于' : '创建于';
 
         return `
         <div class="bili-task-card" data-bvid="${t.bvid}">
@@ -2675,11 +2719,11 @@ ${safeComments}
               <span class="bili-task-author">${escapeHtml(t.author || t.bvid)}</span>
               <div style="display: flex; align-items: center; gap: 6px;">
                 <button class="bili-dev-retry-btn" data-bvid="${t.bvid}" title="重新抓取并生成">🔄 重新总结</button>
-                <span class="bili-status-badge ${badgeClass}">${badgeText}</span>
+                <span class="bili-status-badge ${badgeClass}" data-bvid="${t.bvid}">${badgeText}</span>
               </div>
             </div>
             <div class="bili-task-subfooter">
-              <span class="bili-task-time" title="首次添加: ${formatTaskTime(t.createdAt)} / 上次更新: ${formatTaskTime(t.updatedAt)}">⏱️ ${t.status === TaskStatus.COMPLETED ? '总结于' : '创建于'} ${formatTaskTime(t.updatedAt || t.createdAt)}</span>
+              <span class="bili-task-time" title="首次添加: ${formatTaskTime(t.createdAt)} / 上次更新: ${formatTaskTime(t.updatedAt)}">⏱️ ${timePrefix} ${formatTaskTime(t.updatedAt || t.createdAt)}${durationStr}</span>
             </div>
           </div>
         </div>
@@ -2698,6 +2742,8 @@ ${safeComments}
           activeDetailBvid = bvid;
           switchView('detail');
           renderDetailView(bvid);
+        } else if (task && task.status === TaskStatus.INTERRUPTED) {
+          executeSummaryTask(bvid, task);
         } else if (task && task.status === TaskStatus.FAILED) {
           if (confirm(`任务失败原因: ${task.error}\n\n是否重新尝试生成？`)) {
             executeSummaryTask(bvid, task);
