@@ -14,6 +14,7 @@ bili-review - B站视频字幕抓取 + 评论区爬取
 """
 import argparse
 import concurrent.futures
+import hashlib
 import http.cookiejar
 import json
 import math
@@ -483,14 +484,19 @@ MIXIN_KEY_ENC_TAB = [
 ]
 
 
-def get_wbi_keys(cookie_file: Path = None) -> tuple:
-    """获取 WBI 签名所必需的 img_key 和 sub_key."""
+def get_cookie_opener(cookie_file: Path = None) -> urllib.request.OpenerDirector:
+    """构建支持本地 CookieJar 的 URL 请求处理器."""
     opener = urllib.request.build_opener()
     if cookie_file and cookie_file.exists():
         cj = http.cookiejar.MozillaCookieJar(str(cookie_file))
         cj.load(ignore_discard=True, ignore_expires=True)
         opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
+    return opener
 
+
+def get_wbi_keys(cookie_file: Path = None) -> tuple:
+    """获取 WBI 签名所必需的 img_key 和 sub_key."""
+    opener = get_cookie_opener(cookie_file)
     req = urllib.request.Request("https://api.bilibili.com/x/web-interface/nav",
                                  headers={'User-Agent': UA})
     try:
@@ -501,8 +507,8 @@ def get_wbi_keys(cookie_file: Path = None) -> tuple:
         sub_key = wbi_img.get('sub_url', '').split('/')[-1].split('.')[0]
         if img_key and sub_key:
             return img_key, sub_key
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"提示: 动态获取 WBI 密钥异常 ({e})，使用通用默认密钥", file=sys.stderr)
     return '7cd084941338484a82710541930c82b2', '492b161900b24a498de897ea6d653d87'
 
 
@@ -541,12 +547,7 @@ def fetch_subtitle_wbi(bvid: str, lang: str = None) -> str:
     query_str = urllib.parse.urlencode(signed_params)
     url = f"https://api.bilibili.com/x/player/wbi/v2?{query_str}"
 
-    opener = urllib.request.build_opener()
-    if cookie_file and cookie_file.exists():
-        cj = http.cookiejar.MozillaCookieJar(str(cookie_file))
-        cj.load(ignore_discard=True, ignore_expires=True)
-        opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
-
+    opener = get_cookie_opener(cookie_file)
     req = urllib.request.Request(url, headers={
         'User-Agent': UA,
         'Referer': f'https://www.bilibili.com/video/{bvid}'
@@ -595,7 +596,8 @@ def fetch_subtitle(bvid: str, lang: str = None) -> str:
         text = fetch_subtitle_wbi(bvid, lang)
         if text and text.strip():
             return text
-    except Exception:
+    except Exception as e:
+        # print(f"提示: WBI 原生字幕抓取未成功 ({e})，降级为 yt-dlp", file=sys.stderr)
         pass
 
     language = lang or 'ai-zh'

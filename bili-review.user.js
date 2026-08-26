@@ -2,7 +2,7 @@
 // @name         Bilibili 视频总结 (bili-review)
 // @namespace    https://clawhub.ai/frozentearz/skills/bili-review
 // @version      2.1.2
-// @description  边刷B站边看AI视频总结！三源交叉检视（字幕观点 + 弹幕时序 + 楼中楼评论），右侧悬浮Dock多任务队列与 Markdown 总结阅读器。支持 Tab/Esc 键控制与拖拽定宽。
+// @description  边刷B站边看AI视频总结！三源交叉检视（字幕观点 + 弹幕时序 + 楼中楼评论），右侧悬浮Dock多任务队列与 Markdown 总结阅读器。支持 Tab 键三态轮转与拖拽定宽。
 // @author       Frazier
 // @match        *://*.bilibili.com/*
 // @grant        GM_xmlhttpRequest
@@ -291,9 +291,21 @@
       try {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), Math.min(timeoutMs, 8000));
+
+        // 自动过滤受保护请求头（Referer / User-Agent 等），避免浏览器 fetch 抛出 TypeError
+        const safeHeaders = { ...(options.headers || {}) };
+        delete safeHeaders['Referer'];
+        delete safeHeaders['referer'];
+        delete safeHeaders['User-Agent'];
+        delete safeHeaders['user-agent'];
+        delete safeHeaders['Host'];
+        delete safeHeaders['host'];
+        delete safeHeaders['Origin'];
+        delete safeHeaders['origin'];
+
         const fetchOpts = {
           method: options.method || 'GET',
-          headers: options.headers || {},
+          headers: safeHeaders,
           body: options.body || null,
           signal: controller.signal,
           credentials: 'include'
@@ -308,7 +320,7 @@
       }
     }
 
-    // 2. 跨域 AI 接口 (如 127.0.0.1:62999 / DeepSeek / Claude / Ollama) 1毫秒直连 GM_xmlhttpRequest，彻底杜绝跨域挂起
+    // 2. 跨域 AI 接口 或 B 站跨源降级，走 GM_xmlhttpRequest
     return new Promise((resolve, reject) => {
       let isSettled = false;
       const watchdogTimer = setTimeout(() => {
@@ -323,12 +335,19 @@
           clearTimeout(watchdogTimer);
           return reject(new Error('无可用网络请求接口'));
         }
+
+        const gmHeaders = { ...(options.headers || {}) };
+        if (isBiliDomain && !gmHeaders['Referer']) {
+          gmHeaders['Referer'] = 'https://www.bilibili.com';
+        }
+
         GM_xmlhttpRequest({
           method: options.method || 'GET',
           url,
-          headers: options.headers || {},
+          headers: gmHeaders,
           data: options.body || null,
           timeout: timeoutMs,
+          withCredentials: isBiliDomain,
           onload: (res) => {
             if (isSettled) return;
             isSettled = true;
@@ -571,7 +590,9 @@
           const legacyRaw = await gmFetch(`https://api.bilibili.com/x/player/v2?bvid=${bvid}&cid=${cid}`, { timeout: 4000 });
           const legacyJson = JSON.parse(legacyRaw);
           subList = legacyJson.data?.subtitle?.subtitles || [];
-        } catch (_) {}
+        } catch (legacyErr) {
+          console.warn('[bili-review] 尝试旧版 player/v2 接口未获取字幕:', legacyErr.message);
+        }
       }
 
       if (subList.length > 0) {
@@ -882,8 +903,8 @@ ${safeComments}
     const cfg = getConfig();
     const cleanUrl = (cfg.baseUrl || 'http://127.0.0.1:62999').replace(/\/+$/, '');
     const model = cfg.model || cfg.activeModel || cfg.targetModel || 'claude-opus-4-8';
-    const maxTokens = Number(cfg.maxTokens) || 4096;
-    const isAnthropic = cfg.apiType === 'anthropic' || cleanUrl.includes('62999') || cleanUrl.includes('anthropic.com');
+    const maxTokens = Number(cfg.maxTokens) || 8192;
+    const isAnthropic = cfg.apiType === 'anthropic' || (!cfg.apiType && (cleanUrl.includes('anthropic.com') || cleanUrl.includes('62999')));
 
     let endpoint = '';
     let headers = {};
