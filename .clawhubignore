@@ -8,4 +8,8 @@ __pycache__/
 .DS_Store
 SKILL-v2.md
 
-
+# 浏览器插件与前端开发源码 (仅托管于 GitHub, 不发 ClawHub)
+bili-review.user.js
+src/
+tests/
+flowchart.html
