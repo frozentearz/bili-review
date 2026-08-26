@@ -7,4 +7,5 @@ __pycache__/
 *.zip
 .DS_Store
 
-
+# 本地草稿
+SKILL-v*.md

@@ -7,6 +7,7 @@ __pycache__/
 *.zip
 .DS_Store
 SKILL-v2.md
+SKILL-v2.1.md
 
 # 浏览器插件与前端开发源码 (仅托管于 GitHub, 不发 ClawHub)
 bili-review.user.js
