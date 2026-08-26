@@ -1110,7 +1110,7 @@ ${safeComments}
       method: 'POST',
       headers,
       body: JSON.stringify(body),
-      timeout: 90000
+      timeout: 180000
     });
 
     let json;
