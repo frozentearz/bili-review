@@ -9,6 +9,7 @@
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_registerMenuCommand
+// @grant        unsafeWindow
 // @connect      *
 // @connect      127.0.0.1
 // @connect      localhost
@@ -272,6 +273,70 @@
     return `[${mm}:${ss}]`;
   }
 
+  function formatSubtitleList(body) {
+    if (!Array.isArray(body) || body.length === 0) return '';
+    const cleanedItems = [];
+    let lastText = '';
+
+    for (const item of body) {
+      let content = String(item?.content || '').trim();
+      if (!content) continue;
+
+      // 1. 相邻完全相同内容过滤
+      if (content === lastText) continue;
+
+      // 2. 滑动窗口前缀包含消除（处理识别词逐步拼接）
+      if (lastText && content.startsWith(lastText)) {
+        if (cleanedItems.length > 0) {
+          cleanedItems[cleanedItems.length - 1].content = content;
+          cleanedItems[cleanedItems.length - 1].to = item.to || cleanedItems[cleanedItems.length - 1].to;
+          lastText = content;
+          continue;
+        }
+      } else if (lastText && lastText.startsWith(content)) {
+        continue;
+      }
+
+      cleanedItems.push({
+        from: Number(item.from) || 0,
+        to: Number(item.to) || 0,
+        content
+      });
+      lastText = content;
+    }
+
+    // 3. 自然停顿与整句合并（按标点、语义适中长度 >= 50 或停顿 > 2.5s 聚合为自然整句）
+    const sentences = [];
+    let currentSentence = '';
+    let sentenceStartTime = null;
+
+    for (let i = 0; i < cleanedItems.length; i++) {
+      const item = cleanedItems[i];
+      if (sentenceStartTime === null) {
+        sentenceStartTime = item.from;
+      }
+
+      if (currentSentence) {
+        currentSentence += (/[a-zA-Z0-9]$/.test(currentSentence) ? ' ' : '') + item.content;
+      } else {
+        currentSentence = item.content;
+      }
+
+      const nextItem = cleanedItems[i + 1];
+      const isTimeGap = nextItem && (nextItem.from - item.to > 2.5);
+      const isPunctuation = /[。！？!?；;\n]$/.test(item.content);
+      const isLengthThreshold = currentSentence.length >= 50;
+
+      if (!nextItem || isTimeGap || isPunctuation || isLengthThreshold) {
+        sentences.push(`${formatSecondsToTime(sentenceStartTime)} ${currentSentence.trim()}`);
+        currentSentence = '';
+        sentenceStartTime = null;
+      }
+    }
+
+    return sentences.join('\n');
+  }
+
   function normalizeComment(c) {
     return {
       uname: c?.member?.uname || '匿名用户',
@@ -284,9 +349,11 @@
 
   async function gmFetch(url, options = {}) {
     const timeoutMs = options.timeout || 15000;
-    const isBiliDomain = url.includes('bilibili.com') || url.includes('hdslb.com');
+    const isBiliApi = url.includes('bilibili.com');
+    const isCdn = url.includes('hdslb.com') || url.includes('bilivideo.com');
+    const isBiliDomain = isBiliApi || isCdn;
 
-    // 1. 若为 B 站同源/子域名，优先使用浏览器原生 fetch（自动携带 Cookie）
+    // 1. 若为 B 站同源/子域名或 CDN，优先使用浏览器原生 fetch
     if (isBiliDomain) {
       try {
         const controller = new AbortController();
@@ -308,7 +375,8 @@
           headers: safeHeaders,
           body: options.body || null,
           signal: controller.signal,
-          credentials: 'include'
+          // 关键修复：CDN 静态资源（如 aisubtitle.hdslb.com）绝不能携带 include，否则与 CDN 返回的 Access-Control-Allow-Origin: * 发生浏览器硬性 CORS 冲突
+          credentials: isCdn ? 'omit' : 'include'
         };
         const res = await fetch(url, fetchOpts);
         clearTimeout(timer);
@@ -347,7 +415,7 @@
           headers: gmHeaders,
           data: options.body || null,
           timeout: timeoutMs,
-          withCredentials: isBiliDomain,
+          withCredentials: isBiliApi && !isCdn,
           onload: (res) => {
             if (isSettled) return;
             isSettled = true;
@@ -507,16 +575,38 @@
   let cachedWbiKeys = null;
   let cachedWbiTime = 0;
 
+  function getPageWindow() {
+    return typeof unsafeWindow !== 'undefined' ? unsafeWindow : (typeof window !== 'undefined' ? window : globalThis);
+  }
+
   async function getWbiKeys() {
     const now = Date.now();
     if (cachedWbiKeys && now - cachedWbiTime < 1000 * 60 * 10) {
       return cachedWbiKeys;
     }
+    // 1. 若当前页面已挂载 wbi_img，穿透沙箱零延迟直接读取
+    try {
+      const pageWin = getPageWindow();
+      const pageWbi = pageWin.__INITIAL_STATE__?.wbi_img ||
+                      pageWin.__pinia?.wbi_img ||
+                      pageWin.__INITIAL_STATE__?.wbiImg;
+      if (pageWbi?.img_url && pageWbi?.sub_url) {
+        const imgKey = pageWbi.img_url.split('/').pop().split('.')[0];
+        const subKey = pageWbi.sub_url.split('/').pop().split('.')[0];
+        if (imgKey && subKey) {
+          cachedWbiKeys = { imgKey, subKey };
+          cachedWbiTime = now;
+          return cachedWbiKeys;
+        }
+      }
+    } catch (_) {}
+
+    // 2. 通过 nav 接口动态获取
     try {
       const navRaw = await gmFetch('https://api.bilibili.com/x/web-interface/nav', { timeout: 6000 });
       const navJson = JSON.parse(navRaw);
       const wbiImg = navJson.data?.wbi_img;
-      if (wbiImg) {
+      if (wbiImg?.img_url && wbiImg?.sub_url) {
         const imgKey = wbiImg.img_url.split('/').pop().split('.')[0];
         const subKey = wbiImg.sub_url.split('/').pop().split('.')[0];
         cachedWbiKeys = { imgKey, subKey };
@@ -526,7 +616,7 @@
     } catch (e) {
       console.warn('[bili-review] 获取 WBI 密钥失败:', e);
     }
-    return { imgKey: '7cd084941338484a82710541930c82b2', subKey: '492b161900b24a498de897ea6d653d87' };
+    return { imgKey: '7cd084941338484aae1ad9425b84077c', subKey: '4932caff0ff746eab6f01bf08b70ac45' };
   }
 
   function signWbiParams(params, imgKey, subKey) {
@@ -565,26 +655,78 @@
       desc: data.desc || ''
     };
 
-    // 2. 抓取字幕（带 6 秒隔离超时保护，支持 WBI v2 官方全语言 AI 字幕）
+    // 2. 严格按 aid/cid 独立抓取字幕（支持原生极速直读、WBI v2 官方 AI 字幕与多重容灾降级）
     let subtitleText = '';
     try {
       let subList = [];
+
+      // 2.0 当前播放视频极速通道（穿透沙箱直接提取）
       try {
-        const { imgKey, subKey } = await getWbiKeys();
-        const signedQuery = signWbiParams({ aid, cid, bvid }, imgKey, subKey);
-        const playerRaw = await gmFetch(`https://api.bilibili.com/x/player/wbi/v2?${signedQuery}`, {
-          timeout: 6000,
-          headers: {
-            'Referer': `https://www.bilibili.com/video/${bvid}`
+        const pageWin = getPageWindow();
+        const state = pageWin.__INITIAL_STATE__;
+        const pinia = pageWin.__pinia;
+        const curBvid = state?.videoData?.bvid || state?.bvid || pinia?.videoData?.bvid || '';
+        const curAid = state?.videoData?.aid || state?.aid || pinia?.videoData?.aid || '';
+        const path = (pageWin.location?.pathname || (typeof window !== 'undefined' ? window.location?.pathname : '')) || '';
+
+        const isCurrentPage = (curBvid && curBvid === bvid) ||
+                              (curAid && String(curAid) === String(aid)) ||
+                              path.includes(bvid);
+
+        if (isCurrentPage) {
+          const inPageSubs = state?.videoData?.subtitle?.list ||
+                             pinia?.videoData?.subtitle?.list ||
+                             state?.subtitle?.list ||
+                             (pageWin.player?.getSubtitle ? pageWin.player.getSubtitle() : null) || [];
+          if (Array.isArray(inPageSubs) && inPageSubs.length > 0) {
+            subList = inPageSubs.filter((s) => s && (s.subtitle_url || s.url));
+            console.log(`[bili-review] [1/4] ✅ 成功从宿主页面直读提取到 ${subList.length} 条字幕:`, subList);
           }
-        });
-        const playerJson = JSON.parse(playerRaw);
-        subList = playerJson.data?.subtitle?.subtitles || [];
-      } catch (wbiErr) {
-        console.warn('[bili-review] WBI 字幕接口异常，尝试旧版接口:', wbiErr.message);
+        }
+      } catch (inPageErr) {
+        console.warn('[bili-review] 宿主页面字幕直读异常:', inPageErr);
       }
 
-      // 降级兼容：如果 wbi/v2 没拿到，尝试旧版 player/v2
+      // 2.1 WBI v2 动态验签直连（主通路 1：aid + cid + bvid）
+      if (subList.length === 0) {
+        try {
+          const { imgKey, subKey } = await getWbiKeys();
+          const signedQuery = signWbiParams({ aid, cid, bvid }, imgKey, subKey);
+          const playerRaw = await gmFetch(`https://api.bilibili.com/x/player/wbi/v2?${signedQuery}`, {
+            timeout: 6000,
+            headers: {
+              'Referer': `https://www.bilibili.com/video/${bvid}`
+            }
+          });
+          const playerJson = JSON.parse(playerRaw);
+          subList = playerJson.data?.subtitle?.subtitles || [];
+          if (subList.length > 0) {
+            console.log(`[bili-review] [1/4] ✅ WBI v2 接口提取到 ${subList.length} 条字幕`);
+          } else if (playerJson.data?.need_login_subtitle) {
+            console.warn('[bili-review] ⚠️ WBI 接口提示 need_login_subtitle=true (需登录态凭据)');
+          }
+        } catch (wbiErr) {
+          console.warn('[bili-review] WBI 接口异常，尝试备用签名:', wbiErr.message);
+        }
+      }
+
+      // 2.2 WBI v2 备用签名（主通路 2：aid + cid）
+      if (subList.length === 0) {
+        try {
+          const { imgKey, subKey } = await getWbiKeys();
+          const signedQuery = signWbiParams({ aid, cid }, imgKey, subKey);
+          const playerRaw = await gmFetch(`https://api.bilibili.com/x/player/wbi/v2?${signedQuery}`, {
+            timeout: 5000,
+            headers: {
+              'Referer': `https://www.bilibili.com/video/${bvid}`
+            }
+          });
+          const playerJson = JSON.parse(playerRaw);
+          subList = playerJson.data?.subtitle?.subtitles || [];
+        } catch (_) {}
+      }
+
+      // 2.3 降级兼容：尝试旧版 player/v2
       if (subList.length === 0) {
         try {
           const legacyRaw = await gmFetch(`https://api.bilibili.com/x/player/v2?bvid=${bvid}&cid=${cid}`, { timeout: 4000 });
@@ -596,17 +738,22 @@
       }
 
       if (subList.length > 0) {
-        // 优先匹配中文 AI (ai-zh / zh-CN / zh-Hans) 或第一条可用字幕
-        const targetSub = subList.find((s) => s.lan === 'ai-zh' || s.lan === 'zh-CN' || s.lan === 'zh-Hans') || subList[0];
-        let subUrl = targetSub.subtitle_url;
-        if (subUrl.startsWith('//')) subUrl = 'https:' + subUrl;
-        const subContentRaw = await gmFetch(subUrl, { timeout: 6000 });
-        const subData = JSON.parse(subContentRaw);
-        if (Array.isArray(subData.body)) {
-          subtitleText = subData.body
-            .map((item) => `${formatSecondsToTime(item.from)} ${item.content || ''}`.trim())
-            .filter(Boolean)
-            .join('\n');
+        // 智能匹配字幕（优先 ai-zh / zh-CN / zh-Hans / zh-Hant 等中文，或任意可用字幕）
+        const targetSub = subList.find((s) => s.lan === 'ai-zh' || s.lan === 'zh-CN' || s.lan === 'zh-Hans') ||
+                          subList.find((s) => s.lan && s.lan.startsWith('zh')) ||
+                          subList.find((s) => s.subtitle_url || s.url) ||
+                          subList[0];
+
+        let subUrl = targetSub.subtitle_url || targetSub.url;
+        if (subUrl) {
+          if (subUrl.startsWith('//')) subUrl = 'https:' + subUrl;
+          console.log('[bili-review] [2/4] 正在下载字幕文件:', subUrl);
+          const subContentRaw = await gmFetch(subUrl, { timeout: 8000 });
+          const subData = JSON.parse(subContentRaw);
+          if (Array.isArray(subData.body)) {
+            subtitleText = formatSubtitleList(subData.body);
+            console.log(`[bili-review] [3/4] ✅ 字幕下载并清洗成功: ${subtitleText.length} 字符`);
+          }
         }
       }
     } catch (e) {
@@ -1077,31 +1224,53 @@ ${safeComments}
       right: 0;
       top: 45%;
       transform: translateY(-50%);
-      background: linear-gradient(135deg, #00AEEC, #0084B6);
+      background: linear-gradient(135deg, rgba(0, 174, 236, 0.95), rgba(0, 142, 204, 0.98));
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
       color: #fff;
-      padding: 10px 14px 10px 12px;
+      padding: 8px 12px 8px 14px;
       border-radius: 20px 0 0 20px;
       cursor: grab;
       z-index: 999990;
-      box-shadow: 0 4px 16px rgba(0, 174, 236, 0.35);
+      box-shadow: -2px 4px 20px rgba(0, 174, 236, 0.35), 0 2px 6px rgba(0, 0, 0, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.28);
+      border-right: none;
       font-size: 13px;
       font-weight: 600;
       display: flex;
       align-items: center;
       gap: 6px;
-      transition: top 0.15s ease-out, box-shadow 0.25s ease, padding 0.25s ease;
+      transition: top 0.15s ease-out, box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1), padding 0.25s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
       user-select: none;
       touch-action: none;
     }
     #bili-review-float-btn.dragging {
       cursor: grabbing !important;
       transition: none !important;
-      opacity: 0.92;
-      box-shadow: 0 8px 24px rgba(0, 174, 236, 0.6);
+      opacity: 0.94;
+      box-shadow: -4px 8px 28px rgba(0, 174, 236, 0.65);
+      transform: translateY(0) scale(1.02);
     }
     #bili-review-float-btn:hover {
       padding-left: 18px;
-      box-shadow: 0 6px 20px rgba(0, 174, 236, 0.5);
+      box-shadow: -4px 6px 24px rgba(0, 174, 236, 0.5), 0 2px 8px rgba(0, 0, 0, 0.12);
+      transform: translateY(-50%) translateX(-2px);
+    }
+    .bili-float-kbd {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 700;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro", "Segoe UI", Roboto, sans-serif;
+      background: rgba(255, 255, 255, 0.22);
+      color: #fff;
+      padding: 1px 5px;
+      border-radius: 4px;
+      border: 1px solid rgba(255, 255, 255, 0.4);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+      letter-spacing: 0.3px;
+      line-height: 1.2;
     }
     #bili-review-badge {
       background: #00D084;
@@ -1111,6 +1280,8 @@ ${safeComments}
       padding: 1px 6px;
       font-weight: 700;
       display: inline-block;
+      box-shadow: 0 2px 6px rgba(0, 208, 132, 0.4);
+      line-height: 1.3;
     }
 
     /* 抽屉 / Dock 主体容器 */
@@ -1132,6 +1303,7 @@ ${safeComments}
       color: #18191C;
       overscroll-behavior: contain;
       overscroll-behavior-y: contain;
+      overflow: hidden;
     }
     #bili-review-drawer.resizing {
       transition: none !important;
@@ -1145,19 +1317,27 @@ ${safeComments}
       max-width: 100vw !important;
     }
     #bili-review-drawer.fullscreen .bili-drawer-header {
-      padding: 12px clamp(32px, 8vw, 120px);
-    }
-    #bili-review-drawer.fullscreen #bili-task-list-view {
+      width: 100%;
       max-width: 1100px;
       margin: 0 auto;
+      padding: 12px clamp(24px, 5vw, 60px);
+      box-sizing: border-box;
+    }
+    #bili-review-drawer.fullscreen #bili-task-list-view {
       width: 100%;
+      flex: 1;
+      overflow-y: auto;
+      max-width: 1100px;
+      margin: 0 auto;
       padding: 28px clamp(24px, 5vw, 60px);
       box-sizing: border-box;
     }
     #bili-review-drawer.fullscreen #bili-summary-detail-view {
+      width: 100%;
+      flex: 1;
+      overflow-y: auto;
       max-width: 1100px;
       margin: 0 auto;
-      width: 100%;
       padding: 0 clamp(24px, 5vw, 60px) 40px clamp(24px, 5vw, 60px);
       box-sizing: border-box;
     }
@@ -2220,7 +2400,7 @@ ${safeComments}
     const floatBtn = document.createElement('div');
     floatBtn.id = 'bili-review-float-btn';
     floatBtn.title = '展开/收起总结列表 (可上下拖拽调整位置，按 Tab 键)';
-    floatBtn.innerHTML = `<span>📑 总结列表</span><span id="bili-review-badge">0</span>`;
+    floatBtn.innerHTML = `<span>📑 总结</span><kbd class="bili-float-kbd">Tab</kbd><span id="bili-review-badge">0</span>`;
     document.body.appendChild(floatBtn);
 
     initFloatBtnDrag(floatBtn);
@@ -2575,6 +2755,7 @@ ${safeComments}
     if (!drawer) return;
     drawer.classList.remove('open');
     setDockFullscreen(false);
+    document.body.style.overflow = '';
   }
 
   function toggleDock() {
@@ -2596,6 +2777,7 @@ ${safeComments}
     isDockFullscreen = Boolean(fullscreen);
     if (isDockFullscreen) {
       drawer.classList.add('fullscreen');
+      document.body.style.overflow = 'hidden';
       if (textEl) textEl.textContent = '收起';
       if (iconEl) {
         iconEl.innerHTML = `
@@ -2604,6 +2786,7 @@ ${safeComments}
       }
     } else {
       drawer.classList.remove('fullscreen');
+      document.body.style.overflow = '';
       drawer.style.width = savedDockWidth || '480px';
       if (textEl) textEl.textContent = '全屏';
       if (iconEl) {
@@ -2724,7 +2907,8 @@ ${safeComments}
         } else if (t.status === TaskStatus.INTERRUPTED) {
           badgeText = '⚠️ 已中断';
         } else if (t.status === TaskStatus.FAILED) {
-          badgeText = '❌ 失败';
+          const isNoSub = t.error && (t.error.includes('字幕') || t.error.includes('暂未生成 AI 字幕'));
+          badgeText = isNoSub ? '❌ 无AI字幕' : '❌ 失败';
         }
 
         const durationStr = (t.status === TaskStatus.COMPLETED && t.duration) ? ` · 耗时 ${t.duration}s` : '';

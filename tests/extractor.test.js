@@ -58,6 +58,20 @@ describe('Bilibili Extractor - Seam 1', () => {
       );
     });
 
+    it('deduplicates overlapping realtime speech recognition fragments', () => {
+      const body = [
+        { from: 0.5, to: 1.0, content: '今天' },
+        { from: 1.0, to: 1.8, content: '今天我们' },
+        { from: 1.8, to: 3.0, content: '今天我们来测评' },
+        { from: 3.0, to: 4.5, content: '这款全新的大模型。' }
+      ];
+      const result = formatSubtitleList(body);
+      assert.strictEqual(
+        result,
+        '[00:00] 今天我们来测评这款全新的大模型。'
+      );
+    });
+
     it('returns empty string when body is empty or invalid', () => {
       assert.strictEqual(formatSubtitleList([]), '');
       assert.strictEqual(formatSubtitleList(null), '');

@@ -509,7 +509,7 @@ def get_wbi_keys(cookie_file: Path = None) -> tuple:
             return img_key, sub_key
     except Exception as e:
         print(f"提示: 动态获取 WBI 密钥异常 ({e})，使用通用默认密钥", file=sys.stderr)
-    return '7cd084941338484a82710541930c82b2', '492b161900b24a498de897ea6d653d87'
+    return '7cd084941338484aae1ad9425b84077c', '4932caff0ff746eab6f01bf08b70ac45'
 
 
 def sign_wbi_params(params: dict, img_key: str, sub_key: str) -> dict:
