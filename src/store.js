@@ -62,7 +62,7 @@ export class TaskStore {
   }
 
   listTasks() {
-    return Array.from(this.tasks.values()).sort((a, b) => b.updatedAt - a.updatedAt);
+    return Array.from(this.tasks.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   }
 
   deleteTask(bvid) {

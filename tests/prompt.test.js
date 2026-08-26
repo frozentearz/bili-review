@@ -32,8 +32,8 @@ describe('Prompt Builder - Seam 2', () => {
       assert.ok(prompt.includes('视频标题: 最新AI工具深度测评'));
       assert.ok(prompt.includes('UP主: 科技UP主'));
       assert.ok(prompt.includes('发布时间: 2026-08-20'));
-      assert.ok(prompt.includes('【视频字幕/文稿内容】'));
-      assert.ok(prompt.includes('【评论区与楼中楼讨论】'));
+      assert.ok(prompt.includes('【视频字幕/文稿内容 (BV1abc123456)】'));
+      assert.ok(prompt.includes('【评论区与楼中楼讨论 (BV1abc123456)】'));
       assert.ok(prompt.includes('用户A: 实际测试中发现API收费较贵'));
       assert.ok(prompt.includes('# 《最新AI工具深度测评》视频总结'));
       assert.ok(prompt.includes('### ⚡ 速读卡'));
@@ -52,10 +52,10 @@ describe('Prompt Builder - Seam 2', () => {
       const comments = '1. [2026-08-21] [点赞 50] 用户A: 评论内容';
 
       const prompt = buildReviewPrompt(videoInfo, subtitles, danmaku, comments);
-      assert.ok(prompt.includes('【弹幕时序热点与即时反馈】'));
+      assert.ok(prompt.includes('【弹幕时序热点与即时反馈 (BV1abc123456)】'));
       assert.ok(prompt.includes('【高能时序峰值 TOP】'));
-      assert.ok(prompt.includes('【视频字幕/文稿内容】'));
-      assert.ok(prompt.includes('【评论区与楼中楼讨论】'));
+      assert.ok(prompt.includes('【视频字幕/文稿内容 (BV1abc123456)】'));
+      assert.ok(prompt.includes('【评论区与楼中楼讨论 (BV1abc123456)】'));
       assert.ok(prompt.includes('# 《最新AI工具深度测评》视频总结'));
     });
 

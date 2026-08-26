@@ -33,7 +33,8 @@ export function getSystemPrompt() {
 2. 每段首句出结论，关键数据、核心参数、代码指令必须加粗。
 3. 涉及参数对比、版本差异、优缺点比对时，优先采用 Markdown 小表格。
 4. 严禁 AI 套话腔调（严禁出现“综上所述”、“值得注意的是”、“不可否认”、“赋能”、“不仅...而且...”等词）。
-5. 独立客观：直接输出视频总结内容，严禁输出任何问候语、对话开场白或人称称呼。`;
+5. 独立客观：直接输出视频总结内容，严禁输出任何问候语、对话开场白或人称称呼。
+6. 会话与数据隔离：本任务仅针对当前输入的单一视频数据进行独立事实总结，严禁与历史会话中讨论过的其他视频数据混淆与关联。`;
 }
 
 /**
@@ -81,8 +82,10 @@ export function buildReviewPrompt(videoInfo, subtitleText, danmakuOrCommentsText
 
   const safeComments = finalComments && finalComments.trim() ? finalComments.trim() : '暂无精选评论';
 
+  const bvidTag = bvid ? ` (${bvid})` : '';
+
   const danmakuSection = danmakuSummary && danmakuSummary.trim()
-    ? `\n=== 【弹幕时序热点与即时反馈】 ===\n${danmakuSummary.trim()}\n`
+    ? `\n=== 【弹幕时序热点与即时反馈${bvidTag}】 ===\n${danmakuSummary.trim()}\n`
     : '';
 
   return `请根据以下 B 站视频三源数据，严格按照 bili-review 输出契约规范生成结构化视频总结：
@@ -94,10 +97,10 @@ export function buildReviewPrompt(videoInfo, subtitleText, danmakuOrCommentsText
 - BV号: ${bvid}
 - 视频链接: https://www.bilibili.com/video/${bvid}
 
-=== 【视频字幕/文稿内容】 ===
+=== 【视频字幕/文稿内容${bvidTag}】 ===
 ${contentSection}
 ${danmakuSection}
-=== 【评论区与楼中楼讨论】 ===
+=== 【评论区与楼中楼讨论${bvidTag}】 ===
 ${safeComments}
 
 ------------------------

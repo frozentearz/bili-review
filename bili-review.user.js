@@ -56,22 +56,25 @@
   }
 
   // ==========================================
-  // 1. 配置管理与动态模型拉取
+  // 1. 配置管理与动态模型拉取（支持 Anthropic 与 OpenAI 双协议）
   // ==========================================
   const DEFAULT_CONFIG = {
-    provider: 'Anthropic',
+    apiType: 'anthropic', // 'anthropic' | 'openai'
     baseUrl: 'http://127.0.0.1:62999',
     apiKey: '',
-    defaultModel: 'claude-3-7-sonnet-20250219',
-    targetModel: 'claude-opus-4-8',
-    activeModel: 'claude-opus-4-8',
-    maxTokens: 4096
+    model: 'claude-opus-4-8',
+    maxTokens: 8192
   };
 
   function getConfig() {
     try {
       const saved = gmStorageGet('bili_review_config');
-      return saved ? { ...DEFAULT_CONFIG, ...(typeof saved === 'string' ? JSON.parse(saved) : saved) } : DEFAULT_CONFIG;
+      const parsed = saved ? (typeof saved === 'string' ? JSON.parse(saved) : saved) : {};
+      const cfg = { ...DEFAULT_CONFIG, ...parsed };
+      if (!cfg.model) {
+        cfg.model = cfg.activeModel || cfg.targetModel || DEFAULT_CONFIG.model;
+      }
+      return cfg;
     } catch {
       return DEFAULT_CONFIG;
     }
@@ -81,31 +84,48 @@
     gmStorageSet('bili_review_config', JSON.stringify(cfg));
   }
 
-  async function pullAvailableModels() {
-    const cfg = getConfig();
-    try {
-      const resRaw = await gmFetch(`${cfg.baseUrl.replace(/\/+$/, '')}/v1/models`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${cfg.apiKey}`,
-          'x-api-key': cfg.apiKey,
-          'anthropic-version': '2023-06-01'
-        },
-        timeout: 5000
-      });
-      const resJson = JSON.parse(resRaw);
-      const models = Array.isArray(resJson.data) ? resJson.data.map((m) => m.id) : [];
+  async function testConnectionAndFetchModels(baseUrl, apiKey, apiType = 'anthropic') {
+    const cleanUrl = (baseUrl || '').replace(/\/+$/, '');
+    if (!cleanUrl) throw new Error('API 地址不能为空');
 
-      if (models.includes(cfg.targetModel)) {
-        cfg.activeModel = cfg.targetModel;
-      } else if (models.length > 0) {
-        cfg.activeModel = models[0];
-      }
-      saveConfig(cfg);
-      updateModelTag();
-    } catch (e) {
-      console.warn('[bili-review] 动态拉取模型失败，使用默认配置:', e);
+    const headers = {};
+    if (apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+      headers['x-api-key'] = apiKey;
     }
+    headers['anthropic-version'] = '2023-06-01';
+
+    const endpoint = cleanUrl.endsWith('/v1') ? `${cleanUrl}/models` : `${cleanUrl}/v1/models`;
+
+    const resRaw = await gmFetch(endpoint, {
+      method: 'GET',
+      headers,
+      timeout: 8000
+    });
+
+    let resJson;
+    try {
+      resJson = JSON.parse(resRaw);
+    } catch (e) {
+      throw new Error(`返回数据不是合法的 JSON: ${resRaw.slice(0, 100)}`);
+    }
+
+    if (resJson.error) {
+      throw new Error(resJson.error.message || JSON.stringify(resJson.error));
+    }
+
+    let models = [];
+    if (Array.isArray(resJson.data)) {
+      models = resJson.data.map((m) => m.id || m.name).filter(Boolean);
+    } else if (Array.isArray(resJson.models)) {
+      models = resJson.models.map((m) => m.id || m.name).filter(Boolean);
+    }
+
+    return {
+      ok: true,
+      models,
+      count: models.length
+    };
   }
 
   // ==========================================
@@ -172,7 +192,7 @@
     }
 
     listTasks() {
-      return Array.from(this.tasks.values()).sort((a, b) => b.updatedAt - a.updatedAt);
+      return Array.from(this.tasks.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     }
 
     deleteTask(bvid) {
@@ -559,7 +579,8 @@
 2. 每段首句出结论，关键数据、核心参数、代码指令必须加粗。
 3. 涉及参数对比、版本差异、优缺点比对时，优先采用 Markdown 小表格。
 4. 严禁 AI 套话腔调（严禁出现“综上所述”、“值得注意的是”、“不可否认”、“赋能”、“不仅...而且...”等词）。
-5. 独立客观：直接输出视频总结内容，严禁输出任何问候语、对话开场白或人称称呼。`;
+5. 独立客观：直接输出视频总结内容，严禁输出任何问候语、对话开场白或人称称呼。
+6. 会话与数据隔离：本任务仅针对当前输入的单一视频数据进行独立事实总结，严禁与历史会话中讨论过的其他视频数据混淆与关联。`;
   }
 
   function buildReviewPrompt(videoInfo, subtitleText, danmakuSummary, commentsText) {
@@ -586,8 +607,10 @@
 
     const safeComments = finalComments && finalComments.trim() ? finalComments.trim() : '暂无精选评论';
 
+    const bvidTag = bvid ? ` (${bvid})` : '';
+
     const danmakuSection = danmakuSecText && danmakuSecText.trim()
-      ? `\n=== 【弹幕时序热点与即时反馈】 ===\n${danmakuSecText.trim()}\n`
+      ? `\n=== 【弹幕时序热点与即时反馈${bvidTag}】 ===\n${danmakuSecText.trim()}\n`
       : '';
 
     return `请根据以下 B 站视频三源数据，严格按照 bili-review 输出契约规范生成结构化视频总结：
@@ -599,10 +622,10 @@
 - BV号: ${bvid}
 - 视频链接: https://www.bilibili.com/video/${bvid}
 
-=== 【视频字幕/文稿内容】 ===
+=== 【视频字幕/文稿内容${bvidTag}】 ===
 ${contentSection}
 ${danmakuSection}
-=== 【评论区与楼中楼讨论】 ===
+=== 【评论区与楼中楼讨论${bvidTag}】 ===
 ${safeComments}
 
 ------------------------
@@ -658,41 +681,84 @@ ${safeComments}
 `;
   }
 
-  async function callAnthropicApi(prompt) {
+  async function callAiApi(prompt, bvid = '') {
     const cfg = getConfig();
-    const headers = {
-      'Authorization': `Bearer ${cfg.apiKey}`,
-      'x-api-key': cfg.apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-beta': 'claude-code-20250219',
-      'content-type': 'application/json',
-      'x-app': 'cli',
-      'user-agent': 'claude-cli/2.1.241 (external, sdk-cli)'
-    };
+    const cleanUrl = (cfg.baseUrl || 'http://127.0.0.1:62999').replace(/\/+$/, '');
+    const model = cfg.model || cfg.activeModel || cfg.targetModel || 'claude-opus-4-8';
+    const maxTokens = Number(cfg.maxTokens) || 4096;
+    const isAnthropic = cfg.apiType === 'anthropic' || cleanUrl.includes('62999') || cleanUrl.includes('anthropic.com');
 
-    const body = JSON.stringify({
-      model: cfg.activeModel || cfg.targetModel || 'claude-opus-4-8',
-      max_tokens: cfg.maxTokens || 4096,
-      system: getSystemPrompt(),
-      stream: false,
-      messages: [{ role: 'user', content: prompt }]
-    });
+    let endpoint = '';
+    let headers = {};
+    let body = {};
 
-    const resText = await gmFetch(`${cfg.baseUrl.replace(/\/+$/, '')}/v1/messages`, {
+    if (isAnthropic) {
+      endpoint = cleanUrl.endsWith('/v1') ? `${cleanUrl}/messages` : `${cleanUrl}/v1/messages`;
+      headers = {
+        'Authorization': `Bearer ${cfg.apiKey}`,
+        'x-api-key': cfg.apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'claude-code-20250219',
+        'content-type': 'application/json',
+        'x-app': 'cli',
+        'user-agent': 'claude-cli/2.1.241 (external, sdk-cli)',
+        'x-session-id': `${bvid || 'task'}_${Date.now()}`,
+        'x-conversation-id': `${bvid || 'task'}_${Date.now()}`
+      };
+      body = {
+        model,
+        max_tokens: maxTokens,
+        system: getSystemPrompt(),
+        stream: false,
+        messages: [{ role: 'user', content: prompt }]
+      };
+    } else {
+      // OpenAI 兼容格式 (如 DeepSeek, GPT-4o, Ollama, OneAPI)
+      endpoint = cleanUrl.endsWith('/v1') ? `${cleanUrl}/chat/completions` : `${cleanUrl}/v1/chat/completions`;
+      headers = {
+        'Authorization': `Bearer ${cfg.apiKey}`,
+        'content-type': 'application/json'
+      };
+      body = {
+        model,
+        max_tokens: maxTokens,
+        stream: false,
+        messages: [
+          { role: 'system', content: getSystemPrompt() },
+          { role: 'user', content: prompt }
+        ]
+      };
+    }
+
+    const resText = await gmFetch(endpoint, {
       method: 'POST',
       headers,
-      body,
+      body: JSON.stringify(body),
       timeout: 120000
     });
 
-    const json = JSON.parse(resText);
-    if (json.error) {
-      throw new Error(json.error.message || 'API 请求被拒绝');
+    let json;
+    try {
+      json = JSON.parse(resText);
+    } catch (e) {
+      throw new Error(`模型响应解析失败 (非 JSON): ${resText.slice(0, 150)}`);
     }
 
+    if (json.error) {
+      throw new Error(json.error.message || (typeof json.error === 'string' ? json.error : JSON.stringify(json.error)));
+    }
+
+    // 智能提取内容 (兼容 Anthropic 与 OpenAI 结构)
     if (Array.isArray(json.content) && json.content.length > 0) {
       return json.content.map((c) => c.text || '').join('');
     }
+    if (Array.isArray(json.choices) && json.choices.length > 0) {
+      return json.choices[0].message?.content || json.choices[0].text || '';
+    }
+    if (typeof json.text === 'string') {
+      return json.text;
+    }
+
     return resText;
   }
 
@@ -706,16 +772,16 @@ ${safeComments}
     try {
       const { videoInfo, subtitleText, danmakuSummary, commentsText } = await fetchBiliVideoData(bvid);
       store.updateTask(bvid, {
-        title: videoInfo.title,
-        author: videoInfo.author,
-        pic: videoInfo.pic,
-        pubdate: videoInfo.pubdate,
+        title: videoInfo.title || meta.title || bvid,
+        author: videoInfo.author || meta.author || '',
+        pic: videoInfo.pic || meta.pic || '',
+        pubdate: videoInfo.pubdate || meta.pubdate || '',
         status: TaskStatus.SUMMARIZING,
         progress: 'AI 正在总结中...'
       });
 
       const prompt = buildReviewPrompt(videoInfo, subtitleText, danmakuSummary, commentsText);
-      const summaryResult = await callAnthropicApi(prompt);
+      const summaryResult = await callAiApi(prompt, bvid);
 
       store.updateTask(bvid, {
         status: TaskStatus.COMPLETED,
@@ -792,7 +858,7 @@ ${safeComments}
       color: #fff;
       padding: 10px 14px 10px 12px;
       border-radius: 20px 0 0 20px;
-      cursor: pointer;
+      cursor: grab;
       z-index: 999990;
       box-shadow: 0 4px 16px rgba(0, 174, 236, 0.35);
       font-size: 13px;
@@ -800,8 +866,15 @@ ${safeComments}
       display: flex;
       align-items: center;
       gap: 6px;
-      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      transition: top 0.15s ease-out, box-shadow 0.25s ease, padding 0.25s ease;
       user-select: none;
+      touch-action: none;
+    }
+    #bili-review-float-btn.dragging {
+      cursor: grabbing !important;
+      transition: none !important;
+      opacity: 0.92;
+      box-shadow: 0 8px 24px rgba(0, 174, 236, 0.6);
     }
     #bili-review-float-btn:hover {
       padding-left: 18px;
@@ -961,6 +1034,29 @@ ${safeComments}
       white-space: nowrap;
     }
 
+    /* 播放页一键总结本视频专属高亮按钮 */
+    .bili-current-video-btn {
+      background: linear-gradient(135deg, #00AEEC, #0084B6) !important;
+      color: #FFFFFF !important;
+      border: 1px solid #00AEEC !important;
+      font-weight: 600 !important;
+      animation: bili-btn-glow 2.5s infinite ease-in-out;
+    }
+    .bili-current-video-btn:hover {
+      background: linear-gradient(135deg, #009CD8, #00709E) !important;
+      box-shadow: 0 2px 10px rgba(0, 174, 236, 0.5) !important;
+      transform: translateY(-1px);
+    }
+    .bili-current-video-btn.completed-state {
+      background: linear-gradient(135deg, #1A7F37, #15622C) !important;
+      border-color: #1A7F37 !important;
+      animation: none !important;
+    }
+    @keyframes bili-btn-glow {
+      0%, 100% { box-shadow: 0 0 0 rgba(0, 174, 236, 0); }
+      50% { box-shadow: 0 0 10px rgba(0, 174, 236, 0.55); }
+    }
+
     .bili-header-icon-btn {
       background: transparent;
       border: 1px solid transparent;
@@ -1084,6 +1180,19 @@ ${safeComments}
       text-overflow: ellipsis;
       flex: 1;
       min-width: 0;
+    }
+    .bili-task-subfooter {
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      margin-top: 5px;
+      padding-top: 4px;
+      border-top: 1px dashed #F1F2F3;
+    }
+    .bili-task-time {
+      font-size: 10px;
+      color: #9499A0;
+      white-space: nowrap;
     }
 
     /* 状态徽章 Badge - 变绿逻辑 */
@@ -1508,7 +1617,230 @@ ${safeComments}
       transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
       pointer-events: none;
     }
+
+    /* API 设置弹窗 Modal */
+    .bili-modal-backdrop {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(4px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      padding: 16px;
+      box-sizing: border-box;
+      animation: bili-fade-in 0.15s ease-out;
+    }
+    .bili-modal-card {
+      background: #FFFFFF;
+      border: 1px solid #E3E5E7;
+      border-radius: 12px;
+      width: 100%;
+      max-width: 420px;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .bili-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 16px;
+      border-bottom: 1px solid #F1F2F3;
+    }
+    .bili-modal-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #18191C;
+    }
+    .bili-modal-close {
+      background: none;
+      border: none;
+      font-size: 16px;
+      color: #9499A0;
+      cursor: pointer;
+      padding: 4px;
+      line-height: 1;
+      border-radius: 4px;
+    }
+    .bili-modal-close:hover {
+      color: #18191C;
+      background: #F1F2F3;
+    }
+    .bili-modal-body {
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      max-height: 70vh;
+      overflow-y: auto;
+    }
+    .bili-form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .bili-form-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: #61666D;
+    }
+    .bili-radio-group {
+      display: flex;
+      gap: 12px;
+      font-size: 12px;
+      color: #18191C;
+      flex-wrap: wrap;
+    }
+    .bili-radio-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+    }
+    .bili-form-input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 8px 10px;
+      border: 1px solid #DCDFE6;
+      border-radius: 6px;
+      font-size: 12px;
+      color: #18191C;
+      background: #FAFAFA;
+      outline: none;
+      transition: all 0.2s;
+    }
+    .bili-form-input:focus {
+      border-color: #00AEEC;
+      background: #FFFFFF;
+      box-shadow: 0 0 0 2px rgba(0, 174, 236, 0.15);
+    }
+    .bili-input-with-btn {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .bili-input-icon-btn {
+      background: #F1F2F3;
+      border: 1px solid #E3E5E7;
+      border-radius: 6px;
+      padding: 6px 10px;
+      cursor: pointer;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .bili-input-icon-btn:hover {
+      background: #E3E5E7;
+    }
+    .bili-secondary-btn {
+      background: #F1F2F3;
+      border: 1px solid #E3E5E7;
+      border-radius: 6px;
+      padding: 7px 10px;
+      font-size: 11px;
+      color: #18191C;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: all 0.2s;
+    }
+    .bili-secondary-btn:hover {
+      background: #00AEEC;
+      color: #FFFFFF;
+      border-color: #00AEEC;
+    }
+    .bili-test-status {
+      font-size: 11px;
+      min-height: 16px;
+      line-height: 1.4;
+      margin-top: 2px;
+    }
+    .bili-test-status.success {
+      color: #16A34A;
+      font-weight: 600;
+    }
+    .bili-test-status.error {
+      color: #DC2626;
+      font-weight: 600;
+    }
+    .bili-test-status.testing {
+      color: #D97706;
+      font-weight: 600;
+    }
+    .bili-modal-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      padding: 12px 16px;
+      background: #F6F7F8;
+      border-top: 1px solid #F1F2F3;
+    }
+    .bili-btn-cancel {
+      background: #FFFFFF;
+      border: 1px solid #DCDFE6;
+      border-radius: 6px;
+      padding: 6px 14px;
+      font-size: 12px;
+      color: #61666D;
+      cursor: pointer;
+    }
+    .bili-btn-cancel:hover {
+      background: #F1F2F3;
+    }
+    .bili-btn-save {
+      background: #00AEEC;
+      border: 1px solid #00AEEC;
+      border-radius: 6px;
+      padding: 6px 16px;
+      font-size: 12px;
+      color: #FFFFFF;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .bili-btn-save:hover {
+      background: #009CD8;
+    }
+    @keyframes bili-fade-in {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
   `;
+
+  function getCurrentPageBvid() {
+    if (typeof window === 'undefined') return null;
+    return parseBvidFromUrl(window.location.href);
+  }
+
+  function updateCurrentVideoBtn() {
+    const btn = document.getElementById('bili-current-video-btn');
+    if (!btn) return;
+    const bvid = getCurrentPageBvid();
+    if (!bvid) {
+      btn.style.display = 'none';
+      return;
+    }
+    btn.style.display = 'inline-flex';
+    const task = store.getTask(bvid);
+    if (task && task.status === TaskStatus.COMPLETED) {
+      btn.innerHTML = `<span>📑 查看本视频总结</span>`;
+      btn.classList.add('completed-state');
+    } else if (task && (task.status === TaskStatus.EXTRACTING || task.status === TaskStatus.SUMMARIZING)) {
+      btn.innerHTML = `<span>⏳ 本视频总结中...</span>`;
+      btn.classList.remove('completed-state');
+    } else {
+      btn.innerHTML = `<span>⚡ 总结本视频</span>`;
+      btn.classList.remove('completed-state');
+    }
+  }
 
   function showToast(msg) {
     const existing = document.querySelector('.bili-review-toast');
@@ -1525,17 +1857,94 @@ ${safeComments}
     }, 2500);
   }
 
-  function updateModelTag() {
-    const tag = document.querySelector('.bili-model-tag');
-    if (tag) tag.textContent = getConfig().activeModel || getConfig().targetModel;
-  }
-
   // ==========================================
   // 7. UI 初始化与事件驱动
   // ==========================================
   let activeDetailBvid = null;
   let isDockFullscreen = false;
   let savedDockWidth = '460px';
+
+  function formatTaskTime(ts) {
+    if (!ts) return '';
+    const d = new Date(ts);
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const h = String(d.getHours()).padStart(2, '0');
+    const min = String(d.getMinutes()).padStart(2, '0');
+    return `${m}-${day} ${h}:${min}`;
+  }
+
+  function initFloatBtnDrag(floatBtn) {
+    const savedTop = gmStorageGet('bili_review_float_top');
+    if (savedTop) {
+      floatBtn.style.top = savedTop;
+      floatBtn.style.transform = 'translateY(0)';
+    }
+
+    let isDragging = false;
+    let startY = 0;
+    let startTop = 0;
+    let moved = false;
+
+    floatBtn.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return; // 仅限左键
+      isDragging = true;
+      moved = false;
+      startY = e.clientY;
+      const rect = floatBtn.getBoundingClientRect();
+      startTop = rect.top;
+
+      const onMouseMove = (moveEvent) => {
+        if (!isDragging) return;
+        const dy = moveEvent.clientY - startY;
+        if (Math.abs(dy) > 3) {
+          if (!moved) {
+            moved = true;
+            floatBtn.classList.add('dragging');
+            floatBtn.style.transition = 'none';
+          }
+        }
+
+        if (moved) {
+          const newTop = startTop + dy;
+          const maxTop = window.innerHeight - floatBtn.offsetHeight - 16;
+          const clampedTop = Math.min(Math.max(16, newTop), maxTop);
+          floatBtn.style.top = `${clampedTop}px`;
+          floatBtn.style.transform = 'translateY(0)';
+        }
+      };
+
+      const onMouseUp = () => {
+        if (!isDragging) return;
+        isDragging = false;
+        floatBtn.classList.remove('dragging');
+        floatBtn.style.transition = '';
+
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+
+        if (moved) {
+          const finalRect = floatBtn.getBoundingClientRect();
+          const topPercent = `${((finalRect.top / window.innerHeight) * 100).toFixed(2)}%`;
+          gmStorageSet('bili_review_float_top', topPercent);
+        }
+      };
+
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    });
+
+    floatBtn.addEventListener('click', (e) => {
+      if (moved) {
+        e.preventDefault();
+        e.stopPropagation();
+        moved = false;
+        return;
+      }
+      e.stopPropagation();
+      toggleDock();
+    });
+  }
 
   function initUI() {
     savedDockWidth = gmStorageGet('bili_review_dock_width', '460px');
@@ -1546,9 +1955,11 @@ ${safeComments}
 
     const floatBtn = document.createElement('div');
     floatBtn.id = 'bili-review-float-btn';
-    floatBtn.title = '展开/收起总结列表 (按 Tab 键)';
+    floatBtn.title = '展开/收起总结列表 (可上下拖拽调整位置，按 Tab 键)';
     floatBtn.innerHTML = `<span>📑 总结列表</span><span id="bili-review-badge">0</span>`;
     document.body.appendChild(floatBtn);
+
+    initFloatBtnDrag(floatBtn);
 
     const drawer = document.createElement('div');
     drawer.id = 'bili-review-drawer';
@@ -1558,10 +1969,14 @@ ${safeComments}
       <div class="bili-drawer-header">
         <div class="bili-drawer-title">
           <span>📊 视频总结</span>
-          <span class="bili-model-tag" title="${getConfig().activeModel || getConfig().targetModel}">${getConfig().activeModel || getConfig().targetModel}</span>
+          <button class="bili-header-pill-btn" id="bili-settings-btn" title="API 接入与模型设置">
+            <span>⚙️ 设置</span>
+          </button>
+          <button class="bili-header-pill-btn bili-current-video-btn" id="bili-current-video-btn" style="display: none;" title="一键总结当前正在播放的视频">
+            <span>⚡ 总结本视频</span>
+          </button>
         </div>
         <div class="bili-drawer-actions">
-          <button class="bili-header-icon-btn" id="bili-clear-btn" title="清空所有记录">🗑️</button>
           <button class="bili-header-pill-btn" id="bili-fullscreen-btn" title="全屏 / 还原 (按 Tab 键)">
             <svg id="bili-fullscreen-icon" viewBox="0 0 20 20" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M3 8V3h5M17 8V3h-5M3 12v5h5M17 12v5h-5"/>
@@ -1587,6 +2002,63 @@ ${safeComments}
         </div>
         <div class="bili-markdown-body" id="bili-detail-content"></div>
       </div>
+
+      <!-- API 设置 Modal 弹窗 -->
+      <div id="bili-settings-modal" class="bili-modal-backdrop" style="display: none;">
+        <div class="bili-modal-card">
+          <div class="bili-modal-header">
+            <div class="bili-modal-title">⚙️ API 接入与模型配置</div>
+            <button class="bili-modal-close" id="bili-cfg-close-btn">✕</button>
+          </div>
+          <div class="bili-modal-body">
+            <div class="bili-form-group">
+              <label class="bili-form-label">协议类型 (Protocol):</label>
+              <div class="bili-radio-group">
+                <label class="bili-radio-item">
+                  <input type="radio" name="bili-cfg-type" value="anthropic" id="bili-cfg-type-anthropic" />
+                  <span>Anthropic (Claude / 本地 62999)</span>
+                </label>
+                <label class="bili-radio-item">
+                  <input type="radio" name="bili-cfg-type" value="openai" id="bili-cfg-type-openai" />
+                  <span>OpenAI 兼容 (DeepSeek / GPT / Ollama)</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="bili-form-group">
+              <label class="bili-form-label" for="bili-cfg-url">接口地址 (Base URL):</label>
+              <input type="text" class="bili-form-input" id="bili-cfg-url" placeholder="如 http://127.0.0.1:62999 或 https://api.deepseek.com" />
+            </div>
+
+            <div class="bili-form-group">
+              <label class="bili-form-label" for="bili-cfg-key">API 密钥 (API Key / Token):</label>
+              <div class="bili-input-with-btn">
+                <input type="password" class="bili-form-input" id="bili-cfg-key" placeholder="sk-..." autocomplete="off" />
+                <button type="button" class="bili-input-icon-btn" id="bili-cfg-toggle-key" title="显示/隐藏密钥">👁️</button>
+              </div>
+            </div>
+
+            <div class="bili-form-group">
+              <label class="bili-form-label" for="bili-cfg-model">模型名称 (Model):</label>
+              <div class="bili-input-with-btn">
+                <input type="text" class="bili-form-input" id="bili-cfg-model" list="bili-model-list" placeholder="如 claude-opus-4-8 或 deepseek-chat" />
+                <datalist id="bili-model-list"></datalist>
+                <button type="button" class="bili-secondary-btn" id="bili-cfg-test-btn" title="通过 /v1/models 测试连通并拉取模型列表">🔄 拉取并测试</button>
+              </div>
+              <div id="bili-cfg-test-status" class="bili-test-status"></div>
+            </div>
+
+            <div class="bili-form-group">
+              <label class="bili-form-label" for="bili-cfg-tokens">单次最大 Token (Max Tokens):</label>
+              <input type="number" class="bili-form-input" id="bili-cfg-tokens" placeholder="8192" value="8192" />
+            </div>
+          </div>
+          <div class="bili-modal-footer">
+            <button class="bili-btn-cancel" id="bili-cfg-cancel-btn">取消</button>
+            <button class="bili-btn-save" id="bili-btn-save-btn">💾 保存配置</button>
+          </div>
+        </div>
+      </div>
     `;
     document.body.appendChild(drawer);
 
@@ -1594,12 +2066,6 @@ ${safeComments}
     drawer.addEventListener('wheel', (e) => {
       e.stopPropagation();
     }, { passive: true });
-
-    // 浮动按钮点击
-    floatBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      toggleDock();
-    });
 
     // 顶部操作
     document.getElementById('bili-fullscreen-btn').addEventListener('click', (e) => {
@@ -1612,11 +2078,122 @@ ${safeComments}
       closeDock();
     });
 
-    document.getElementById('bili-clear-btn').addEventListener('click', () => {
-      if (confirm('确定要清空所有已生成的总结记录吗？')) {
-        store.clear();
-        switchView('list');
+    // 总结本视频按钮事件
+    document.getElementById('bili-current-video-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      const bvid = getCurrentPageBvid();
+      if (!bvid) return;
+
+      const existing = store.getTask(bvid);
+      if (existing && existing.status === TaskStatus.COMPLETED) {
+        activeDetailBvid = bvid;
+        switchView('detail');
+        renderDetailView(bvid);
+        return;
       }
+
+      if (existing && (existing.status === TaskStatus.EXTRACTING || existing.status === TaskStatus.SUMMARIZING)) {
+        showToast('⏳ 当前视频正在后台总结中，完成后可点击查看');
+        return;
+      }
+
+      const pageTitleEl = document.querySelector('h1.video-title, .video-info-title .tit, .video-title');
+      const pageAuthorEl = document.querySelector('.up-name, .username, .up-info--name');
+      const meta = {
+        title: pageTitleEl ? pageTitleEl.textContent.trim() : bvid,
+        author: pageAuthorEl ? pageAuthorEl.textContent.trim() : '',
+        pic: ''
+      };
+
+      store.createTask(bvid, meta);
+      showToast(`🚀 已将当前视频《${meta.title.slice(0, 12)}...》加入总结队列`);
+      executeSummaryTask(bvid, meta);
+    });
+
+    // API 设置 Modal 逻辑
+    const settingsModal = document.getElementById('bili-settings-modal');
+    const statusEl = document.getElementById('bili-cfg-test-status');
+
+    function openSettingsModal() {
+      const cfg = getConfig();
+      const isAnthropic = cfg.apiType === 'anthropic';
+      document.getElementById('bili-cfg-type-anthropic').checked = isAnthropic;
+      document.getElementById('bili-cfg-type-openai').checked = !isAnthropic;
+      document.getElementById('bili-cfg-url').value = cfg.baseUrl || 'http://127.0.0.1:62999';
+      document.getElementById('bili-cfg-key').value = cfg.apiKey || '';
+      document.getElementById('bili-cfg-model').value = cfg.model || 'claude-opus-4-8';
+      document.getElementById('bili-cfg-tokens').value = cfg.maxTokens || 8192;
+      statusEl.className = 'bili-test-status';
+      statusEl.textContent = '';
+      settingsModal.style.display = 'flex';
+    }
+
+    function closeSettingsModal() {
+      settingsModal.style.display = 'none';
+    }
+
+    document.getElementById('bili-settings-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      openSettingsModal();
+    });
+
+    document.getElementById('bili-cfg-close-btn').addEventListener('click', closeSettingsModal);
+    document.getElementById('bili-cfg-cancel-btn').addEventListener('click', closeSettingsModal);
+
+    // 显隐密码
+    document.getElementById('bili-cfg-toggle-key').addEventListener('click', () => {
+      const keyInput = document.getElementById('bili-cfg-key');
+      keyInput.type = keyInput.type === 'password' ? 'text' : 'password';
+    });
+
+    // 连通测试并拉取模型
+    document.getElementById('bili-cfg-test-btn').addEventListener('click', async () => {
+      const url = document.getElementById('bili-cfg-url').value.trim();
+      const key = document.getElementById('bili-cfg-key').value.trim();
+      const isAnthropic = document.getElementById('bili-cfg-type-anthropic').checked;
+      const apiType = isAnthropic ? 'anthropic' : 'openai';
+
+      statusEl.className = 'bili-test-status testing';
+      statusEl.textContent = '⏳ 正在连接 /v1/models 并拉取模型...';
+
+      try {
+        const res = await testConnectionAndFetchModels(url, key, apiType);
+        const datalist = document.getElementById('bili-model-list');
+        datalist.innerHTML = '';
+        res.models.forEach((m) => {
+          const opt = document.createElement('option');
+          opt.value = m;
+          datalist.appendChild(opt);
+        });
+
+        const currentModel = document.getElementById('bili-cfg-model').value.trim();
+        if (!currentModel && res.models.length > 0) {
+          document.getElementById('bili-cfg-model').value = res.models[0];
+        }
+
+        statusEl.className = 'bili-test-status success';
+        statusEl.textContent = `✅ 连通成功！已加载 ${res.count} 个可用模型`;
+        showToast(`✅ API 连通成功，已拉取 ${res.count} 个可用模型`);
+      } catch (err) {
+        statusEl.className = 'bili-test-status error';
+        statusEl.textContent = `❌ 连通失败: ${err.message}`;
+        showToast(`❌ API 连通失败: ${err.message}`);
+      }
+    });
+
+    // 保存配置
+    document.getElementById('bili-btn-save-btn').addEventListener('click', () => {
+      const isAnthropic = document.getElementById('bili-cfg-type-anthropic').checked;
+      const newCfg = {
+        apiType: isAnthropic ? 'anthropic' : 'openai',
+        baseUrl: document.getElementById('bili-cfg-url').value.trim() || 'http://127.0.0.1:62999',
+        apiKey: document.getElementById('bili-cfg-key').value.trim(),
+        model: document.getElementById('bili-cfg-model').value.trim() || 'claude-opus-4-8',
+        maxTokens: parseInt(document.getElementById('bili-cfg-tokens').value, 10) || 8192
+      };
+      saveConfig(newCfg);
+      closeSettingsModal();
+      showToast('💾 API 配置已保存并实时生效');
     });
 
     document.getElementById('bili-back-to-list-btn').addEventListener('click', () => {
@@ -1690,6 +2267,7 @@ ${safeComments}
     store.subscribe(() => {
       renderTaskList();
       updateBadge();
+      updateCurrentVideoBtn();
       if (activeDetailBvid) {
         renderDetailView(activeDetailBvid);
       }
@@ -1697,6 +2275,7 @@ ${safeComments}
 
     renderTaskList();
     updateBadge();
+    updateCurrentVideoBtn();
   }
 
   function openDock(fullscreen = false) {
@@ -1704,6 +2283,7 @@ ${safeComments}
     if (!drawer) return;
     drawer.classList.add('open');
     setDockFullscreen(fullscreen);
+    updateCurrentVideoBtn();
     renderTaskList();
   }
 
@@ -1870,9 +2450,12 @@ ${safeComments}
             <div class="bili-task-footer">
               <span class="bili-task-author">${escapeHtml(t.author || t.bvid)}</span>
               <div style="display: flex; align-items: center; gap: 6px;">
-                <button class="bili-dev-retry-btn" data-bvid="${t.bvid}" title="开发者测试：重新抓取并生成">🔄 重新总结</button>
+                <button class="bili-dev-retry-btn" data-bvid="${t.bvid}" title="重新抓取并生成">🔄 重新总结</button>
                 <span class="bili-status-badge ${badgeClass}">${badgeText}</span>
               </div>
+            </div>
+            <div class="bili-task-subfooter">
+              <span class="bili-task-time" title="首次添加: ${formatTaskTime(t.createdAt)} / 上次更新: ${formatTaskTime(t.updatedAt)}">⏱️ ${t.status === TaskStatus.COMPLETED ? '总结于' : '创建于'} ${formatTaskTime(t.updatedAt || t.createdAt)}</span>
             </div>
           </div>
         </div>
@@ -2050,11 +2633,11 @@ ${safeComments}
   // ==========================================
   function main() {
     initUI();
-    pullAvailableModels();
     scanAndInjectVideoCards();
 
     const observer = new MutationObserver(() => {
       scanAndInjectVideoCards();
+      updateCurrentVideoBtn();
     });
 
     observer.observe(document.body, {

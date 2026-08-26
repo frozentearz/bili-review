@@ -67,4 +67,21 @@ describe('TaskStore - Seam 3', () => {
     assert.strictEqual(newStore.listTasks().length, 2);
     assert.strictEqual(newStore.getTask('BV1item1').status, TaskStatus.COMPLETED);
   });
+
+  it('sorts tasks by createdAt descending and preserves order upon update', () => {
+    const t1 = store.createTask('BV1old', { title: '旧任务' });
+    t1.createdAt = 1000;
+    const t2 = store.createTask('BV1new', { title: '新任务' });
+    t2.createdAt = 2000;
+
+    let list = store.listTasks();
+    assert.strictEqual(list[0].bvid, 'BV1new');
+    assert.strictEqual(list[1].bvid, 'BV1old');
+
+    // 重新总结旧任务，即使 updatedAt 变大，列表顺序依然基于 createdAt 保持不变
+    store.updateTask('BV1old', { status: TaskStatus.COMPLETED, summary: '最新总结' });
+    list = store.listTasks();
+    assert.strictEqual(list[0].bvid, 'BV1new');
+    assert.strictEqual(list[1].bvid, 'BV1old');
+  });
 });
