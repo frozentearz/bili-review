@@ -1,52 +1,65 @@
 # bili-review 📺
 
-> **高信息密度视频总结神器**：视频官方 AI 字幕（UP 主单方主张） + 弹幕时序热点（群体情绪/即时纠错） + 深度楼中楼评论（群众实测检验证据）三源情报研报生成器。
->
-> 如果这个项目对你有用，欢迎 [⭐ Star](https://github.com/frozentearz/bili-review) 支持，遇到问题或建议请 [📝 提 Issue](https://github.com/frozentearz/bili-review/issues)。
+> **高信息密度 B 站视频总结工具**：整合 **官方 AI 字幕**（UP 主主张） + **高能弹幕时序**（即时纠错与群体反应） + **深度楼中楼评论**（群众实测检验），生成三源交叉事实总结。
+
+[![GitHub Stars](https://img.shields.io/github/stars/frozentearz/bili-review?style=flat-square)](https://github.com/frozentearz/bili-review)
+[![License](https://img.shields.io/badge/license-MIT--0-blue?style=flat-square)](LICENSE)
 
 ---
 
-## 🎯 分级总结原则（投喂指南）
+## 📺 输出效果预览
 
-本工具专为**高密度信息提取与多源交叉验证**设计，请根据内容属性理性分级使用：
+`bili-review` 采用**渐进式双层呈现**：顶部置顶【速读卡】快速做决策，下方展开【详细总结】按视频类型提供落地干货。
 
-| 推荐级别 | 视频类型 | 典型场景 | 为什么值得总结（高 ROI） |
-|---|---|---|---|
-| ✅ **强烈建议总结** | **技术教程 / 工作流** | 编程开发、环境配置、效率软件、生产力工具 | 快速提取步骤清单，跳过冗余口水话与慢速操作演示 |
-| ✅ **强烈建议总结** | **AI 测评 / 软硬件避坑** | 模型评测、数码产品、数码装机、踩坑实录 | 视频吹捧 vs 弹幕/评论区实测翻车对比，一眼看穿真实优缺点与隐藏成本 |
-| ✅ **强烈建议总结** | **干货资讯 / 商业分析** | 行业变局、商业模式拆解、财报解析、政策解读 | 5 秒扫读核心论点与底层逻辑，提炼本质洞察（So What） |
-| ✅ **强烈建议总结** | **游戏机制 / 深度攻略** | 数值机制、配装流派、通关路线、改动分析 | 快速获取结论与参数表格，省去长时间跑图视频观看 |
-| ⚠️ **不建议总结** | **纯娱乐 / 搞笑日常** | VLOG、搞笑整蛊、生活日常、下饭视频 | 核心价值在于音画情绪与镜头节奏，文字化毫无灵魂且 ROI 极低 |
-| ⚠️ **不建议总结** | **影视剪辑 / 音乐舞蹈** | 电影解说、混剪 MV、舞蹈翻跳、纯音乐欣赏 | 视听艺术无法被纯文本替代，总结无实际信息增益 |
-| ⚠️ **不建议总结** | **纯情绪输出 / 对线吵架** | 情绪宣泄、无端对线、标题党引战 | 信息信度极低，充满主观偏见与无效噪音 |
+```markdown
+# 《XXX 深度实测》视频总结
+
+> 👤 **UP主**：某科技测评 ｜ 📅 **发布时间**：2026-08-20 ｜ 🔗 **视频地址**：https://www.bilibili.com/video/BV1xxxxxx
 
 ---
 
-## ✨ 核心特性
-
-- **三源交叉情报研报**：视频 AI 字幕 + 高能弹幕时序分桶/即时纠错 + 热门评论/楼中楼多线程并发深挖，杜绝单方信息偏差。
-- **自适应模型路由**：内置正反合（测评避坑）、5W2H+MEAT（教程实操）、SCQA（行业洞察）、演绎推理（原理解析）四大分析模型。
-- **四大维度 10 项铁律**：从信度（正确性/时效性/客观性）、构度（完整性/聚焦性）、达度（可读性/简洁性/逻辑性）到效度（洞察性/可执行性）严格约束。
-- **无感登录态管理**：首创多浏览器自动探测提取 Cookie，一次授权享有约 **150 天免维护期**。
-- **免费零依赖**：无需购买任何第三方平台 API Key，仅需 `yt-dlp` + Python 3 标准库。
-- **安全与权限保护**：仅提取 B 站相关域名 Cookie，本地文件保存为 `600` 安全权限，默认绝不外泄。
+### ⚡ 速读卡
+- 🚦 **判定结论**：【⚠️ 避坑】（核心卖点存在发热暗病，暂不推荐冲首发）
+- 📌 **一句话主张**：UP 主宣称性能提升 40%、续航翻倍，是今年最值得买的设备。
+- 🔍 **弹幕/评论真相**：弹幕 `[08:24]` 密集吐槽高负载降频；评论区高赞（1200+赞）实测连续运行 20 分钟即触发严重发热卡顿。
+- 🎯 **行动建议**：直接跳过首发，建议观望次代固件或选择民间平替。
 
 ---
 
-## 📦 安装与配置
+## 📌 详细总结
 
-### 1. 依赖准备
+### 1. 🟢 UP 主吹的卖点（红榜）
+- **性能飞跃**：宣称搭载全新架构，基准跑分提升 **40%**。
+- **外观轻薄**：厚度缩减至 **8.2mm**，支持磁吸生态。
 
-系统需安装 `yt-dlp` 与 `python3`：
-```bash
-# macOS (推荐 Homebrew)
-brew install yt-dlp
+### 2. 🔴 弹幕与评论扒出的槽点（黑榜）
+- **高负载发热降频**：弹幕 `[08:24]` 与 `[11:05]` 集中指出视频剪掉了烤机后半段；评论区多位首发用户反馈 4K 录像 15 分钟必死机。
+- **拓展配件溢价高**：官方拓展坞售价高达 **¥599**，且协议私有。
 
-# Windows / Linux / macOS (pip 方式)
-pip install yt-dlp
+### 3. ⚖️ 选型建议与民间平替
+- **适合人群**：仅适合轻度办公、不玩大型游戏的外观党。
+- **民间平替**：评论区高赞推荐 **品牌 B 去年同价位旗舰**，性能释放更稳定且便宜 30%。
 ```
 
-### 2. 获取技能包
+---
+
+## 🚀 选择使用方式
+
+根据你的日常习惯，选择以下任意一种方式即可开箱即用：
+
+### 方式 A：B 站网页端油猴脚本（最简单、适合日常刷视频）
+
+直接在浏览器油猴插件（Tampermonkey / ScriptCat）中导入本仓库根目录下的 [`bili-review.user.js`](bili-review.user.js)：
+
+1. 打开任意 B 站视频播放页面；
+2. 页面右侧会出现悬浮工具栏，或直接按下快捷键 <kbd>Tab</kbd> 呼出抽屉面板；
+3. 点击 **「一键总结」**，实时流式生成并渲染排版精美的视频总结。
+
+---
+
+### 方式 B：AI Agent 技能包（适合 Claude Code / OpenClaw / Antigravity）
+
+如果你在使用各类 AI 终端或 Agent 工作流，可直接安装技能包：
 
 ```bash
 # 方式一：OpenClaw / ClawHub
@@ -54,158 +67,82 @@ openclaw skills install @frozentearz/bili-review
 
 # 方式二：npx skills（任意 Agent）
 npx skills add frozentearz/bili-review -g
-
-# 方式三：Git 手动克隆
-git clone https://github.com/frozentearz/bili-review.git
 ```
 
 ---
 
-## 🚀 快速上手
+### 方式 C：Python CLI 命令行（适合开发者 / 脚本批量处理）
+
+#### 1. 安装依赖
 
 ```bash
-# 1. 首次：从浏览器提取登录态（系统弹窗授权一次，之后 150 天全自动复用）
-python3 scripts/bili_review.py login
+# macOS
+brew install yt-dlp python3
 
-# 2. 一键抓取三源数据（AI 字幕 + 弹幕时序分析 + 评论区楼中楼）
+# Windows / Linux / macOS (pip 方式)
+pip install yt-dlp
+```
+
+#### 2. 克隆仓库与登录
+
+```bash
+git clone https://github.com/frozentearz/bili-review.git
+cd bili-review
+
+# 首次运行：从本机浏览器自动提取 Cookie（免输密码，一次授权有效约 150 天）
+python3 scripts/bili_review.py login
+```
+
+#### 3. 常用抓取命令速查
+
+```bash
+# 一键抓取全部三源数据（AI 字幕 + 弹幕时序分析 + 评论区楼中楼）
 python3 scripts/bili_review.py all "BV1YRhM64Eni"
 
-# 3. 仅抓取弹幕时序分析（时间轴分桶 + 高能时刻 + 即时纠错）
+# 仅抓取弹幕时序热点（30秒时间轴分桶 + 高能峰值 + 即时纠错预警）
 python3 scripts/bili_review.py danmaku "BV1YRhM64Eni"
 
-# 4. 仅抓取字幕（支持 --lang ai-zh / ai-en）
+# 仅抓取字幕（支持 BV号 / AV号 / 网页完整链接 / b23.tv 短链）
 python3 scripts/bili_review.py subtitle "https://www.bilibili.com/video/BV1YRhM64Eni"
 
-# 5. 仅抓取评论区（--replies 开启楼中楼深挖）
+# 仅抓取评论区（--replies 开启楼中楼深度深挖；--limit 设置楼层数）
 python3 scripts/bili_review.py comments "BV1YRhM64Eni" --replies --limit 50
 ```
 
+---
 
-> 💡 输入格式通用支持：`BV号`、`AV号`（如 `av170001`）、`bilibili.com` 网页完整链接及 `b23.tv` 短链接。
+## 💡 四大场景总结框架
+
+`bili-review` 会根据视频类型自动选用确定性的分析骨架，确保输出直击要害：
+
+| 视频类型               | 适用总结方法             | 交付核心内容                                                                       |
+| ---------------------- | ------------------------ | ---------------------------------------------------------------------------------- |
+| **测评 / 避坑 / 选型** | **红黑榜对比法**         | 🟢 **红榜**（宣传亮点） ｜ 🔴 **黑榜**（实测槽点/暗病） ｜ ⚖️ **选型建议与民间平替** |
+| **教程 / 实操 / 配置** | **步骤清单（做减法）**   | 🛠️ **准备工作** ｜ 📋 **核心步骤（直接抄作业）** ｜ ✂️ **做减法与避坑（跳过冗余）**  |
+| **观点 / 商业 / 热点** | **前因后果与内幕**       | 📖 **背景与矛盾** ｜ 🧠 **UP 主主张** ｜ 🔍 **评论区内幕爆料** ｜ 💡 **底层真相**  |
+| **科普 / 原理 / 架构** | **通俗打比方与机制拆解** | 💡 **通俗大白话比方** ｜ ⚙️ **底层运作机制** ｜ 📌 **弹幕纠错与细节补充**           |
 
 ---
 
-## ⚙️ 评论区爬取规则
+## 🔒 隐私与安全机制
 
-- **阶梯主楼规则**：`楼层 = min(200, ceil(评论数 × 30% ÷ 20) × 20)` —— 单调不降、按 20 条/页对齐、自动封顶 200 楼（10 页）。
-- **智能楼中楼规则**：
-  - 默认提取主接口自带的 1~3 条热评回复（0 额外网络开销）。
-  - 开启 `--replies` 时，使用 5 线程并发池深挖：
-    - 单楼回复 ≤20 条：全量爬取
-    - 单楼回复 21~250 条：抓取 40 条
-    - 单楼回复 250+ 条：抓取 60 条
-- **全量扫描与二次确认**：
-  - 支持 `--all-comments` 或 `--limit 0` 开启全量抓取。
-  - 评论量 >500 条时自动进行请求量与耗时预估，并弹出 `[y/N]` 确认（脚本环境可用 `-y` 自动确认）。
-- **去噪与防死循环**：过滤单字/纯符号水评；同一文本全局出现 >3 次自动忽略；基于 RPID 集合判定防死循环；支持随时 `Ctrl+C` 优雅中断并输出已抓取数据。
-
----
-
-## 🔒 登录态与安全机制
-
-- **多浏览器自动探测**：顺序探测 Chrome → Edge → Firefox → Brave → Chromium → Opera → Vivaldi → Whale → Safari，自动选取有效登录态。
-- **安全沙箱隔离**：`cookies.txt` **仅筛选提取 B 站相关域名**（`bilibili.com` / `b23.tv` / `biligame.com`），绝不触碰任何其他网站数据。
-- **权限与版本保护**：文件权限设置为 `600`（仅当前系统用户可读写）；已在 `.gitignore` 与 `.clawhubignore` 中严格排除，绝不提交至代码仓库或分发包。
-
----
-
-## 🗺️ 架构与数据管道
-
-> 💡 **在线交互版流程图**：可访问 [🔗 GitHub Pages 高清交互图](https://frozentearz.github.io/bili-review/flowchart.html)（支持鼠标滚轮无级缩放与拖拽）。
-
-```mermaid
-flowchart TD
-    Start(["用户输入: BV / AV / URL / 短链"]) --> ParseInput["输入解析 (extract_bvid)"]
-    
-    subgraph S1 ["1. 输入解析与自适应转换"]
-        ParseInput --> MatchBV{"匹配 BV 号?"}
-        MatchBV -- 是 --> BVIDFound["确定目标 BVID"]
-        MatchBV -- 否 --> MatchAV{"匹配 AV 号?"}
-        MatchAV -- 是 --> API_AV["请求 B站 view 接口反查 BVID"] --> BVIDFound
-        MatchAV -- 否 --> MatchShort{"包含 b23.tv 短链?"}
-        MatchShort -- 是 --> FixProtocol["自动补齐 https:// 追踪重定向"] --> BVIDFound
-        MatchShort -- 否 --> ErrInput["抛出解析异常"]
-    end
-
-    BVIDFound --> Router{"执行模式选择"}
-    Router -- "subtitle" --> SubtitleBranch
-    Router -- "comments" --> CommentsBranch
-    Router -- "all" --> AllBranch["同时触发字幕与评论抓取"] --> OutputMerge
-
-    subgraph SubtitleBranch ["2. AI 字幕处理管道"]
-        CheckCookie{"检查 cookies.txt 有效性"}
-        CheckCookie -- 有效 --> YtDlp["yt-dlp 调用 (带 B站 Cookie)"]
-        CheckCookie -- 无效/缺失 --> ProbeBrowser["多浏览器探测提取 Cookie (权限 600)"] --> YtDlp
-        YtDlp --> CleanSubs["字幕清洗 (clean_subtitle)<br/>• 剔除时间戳/WEBVTT标签<br/>• 相邻行滑动去重 (保留后续正常台词)"]
-    end
-
-    subgraph CommentsBranch ["3. 评论区高并发与智能去噪管道"]
-        CheckFull{"是否触发全量抓取?<br/>(--all-comments / --limit 0)"}
-        
-        CheckFull -- "是 (总数 > 500)" --> EstTime["时间与请求量动态预估 (estimate_crawl)"]
-        EstTime --> CheckTTY{"是否传 -y 或非 TTY?"}
-        CheckTTY -- 是 --> RunFull["确认全量抓取 (不设上限)"]
-        CheckTTY -- 否 --> UserPrompt{"弹出 [y/N] 交互确认"}
-        UserPrompt -- "用户选 y" --> RunFull
-        UserPrompt -- "用户选 n / 取消" --> FallbackSafe["平稳降级至 200 楼默认安全策略"]
-        
-        CheckFull -- 否 --> FloorCalc["主楼阶梯计算: min(200, ceil(总数*30%/20)*20)"]
-        
-        RunFull --> MainLoop["主楼分页请求 (/x/v2/reply/main)"]
-        FallbackSafe --> MainLoop
-        FloorCalc --> MainLoop
-
-        subgraph LoopCore ["主楼逐页处理与轻量去噪"]
-            MainLoop --> DeadLoopCheck{"RPID 集合判重<br/>(整页是否均已见过?)"}
-            DeadLoopCheck -- 是/已到末尾 --> ExitMain["安全终止主楼翻页"]
-            DeadLoopCheck -- 否 --> ProcessFloors["遍历每楼评论"]
-            
-            ProcessFloors --> NoiseFilter{"轻量去噪检查<br/>1. 文本长度 <= 1 ?<br/>2. 相同文本全局频次 > 3 ?"}
-            NoiseFilter -- 命中垃圾/刷屏 --> SkipComment["continue 跳过当前条 (绝不中断主流程)"]
-            NoiseFilter -- 正常内容 --> ExtractEmbed["白嫖自带数据: 提取自带 1~3 条热评回复 (0 网络请求)"]
-        end
-
-        ExitMain --> CheckReplies{"是否开启 --replies ?"}
-        CheckReplies -- 否 --> FormatComments["整理并格式化评论"]
-        CheckReplies -- 是 --> FilterDeep["筛选深度讨论楼 (总回复数 > 自带预览数)"]
-        
-        FilterDeep --> ThreadPool["ThreadPoolExecutor (5 个工作线程并发深挖)"]
-        ThreadPool --> SubReplyAPI["/x/v2/reply/reply 并发拉取楼中楼"]
-        SubReplyAPI --> FormatComments
-        
-        MainLoop -.->|用户随时 Ctrl+C 中断| GracefulCatch["优雅捕获 KeyboardInterrupt<br/>完整保留并输出当前已抓取数据"] --> FormatComments
-    end
-
-    CleanSubs --> OutputMerge["Markdown 结构化格式拼装 (含发布时间与评论时间戳)"]
-    FormatComments --> OutputMerge
-    OutputMerge --> FinalLLM(["交付结构化上下文给 LLM 输出专业双源研报"])
-
-    classDef highlight fill:#0284c7,stroke:#38bdf8,stroke-width:2px,color:#fff;
-    classDef safe fill:#15803d,stroke:#4ade80,stroke-width:2px,color:#fff;
-    classDef alert fill:#c2410c,stroke:#fb923c,stroke-width:2px,color:#fff;
-    
-    class BVIDFound,OutputMerge,FinalLLM highlight;
-    class CleanSubs,ExtractEmbed,ThreadPool safe;
-    class UserPrompt,EstTime,GracefulCatch alert;
-```
+- **安全沙箱隔离**：`cookies.txt` **仅筛选提取 B 站相关域名**，绝不读取或触碰其他网站数据。
+- **本地权限保护**：本地 Cookie 保存为系统权限 `600`（仅当前系统用户可读写），已严格配置 `.gitignore`，绝不外泄。
 
 ---
 
 ## 🛣️ 路线图（Roadmap）
 
-- [x] **v1.0**：实现基础 AI 字幕抓取与热门评论爬取。
-- [x] **v1.2**：多浏览器 Cookie 提取、楼中楼并发深挖与 150 天免维护机制。
-- [x] **v2.0**：
-  - 视频发布时间与评论/楼中楼时间戳全链路支持。
-  - 工业级 Agent 研报规范重构（四大维度 10 项准则 + 4 大自适应模型路由）。
-  - Mermaid 容灾契约（正文 100% 独立自洽）与 Markdown 规范排版。
-- [ ] **v2.1（规划中）**：
-  - **油猴插件（Tampermonkey Userscript）**：在 B 站视频播放页面注入「⚡ 双源总结」按钮。
-  - **本地轻量 HTTP 守护服务（Local Daemon）**：一键唤起本地 Python 守护进程，秒级生成研报并在网页浮窗完成优雅渲染。
+- [x] **v1.0**：基础 AI 字幕抓取与热门评论爬取。
+- [x] **v1.2**：多浏览器 Cookie 自动提取、楼中楼并发深挖与 150 天免维护机制。
+- [x] **v2.0**：视频与评论时间戳支持、结构化 Markdown 规范排版。
+- [x] **v2.1**：
+  - **弹幕时序分析引擎**：免登录 XML 抓取、30 秒时间轴分桶计算、即时纠错提炼。
+  - **双层渐进总结体系**：置顶【速读卡】+ 展开【4 大场景详细总结】。
+  - **B 站网页端油猴插件**（`bili-review.user.js`）：Tab 键呼出侧边栏抽屉与一键总结。
 
 ---
 
 ## 📄 License
 
-MIT-0（ClawHub 发布规范）
-
+MIT-0 License

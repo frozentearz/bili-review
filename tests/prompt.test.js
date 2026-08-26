@@ -6,18 +6,20 @@ describe('Prompt Builder - Seam 2', () => {
   describe('getSystemPrompt', () => {
     it('returns system prompt containing core bili-review principles', () => {
       const sysPrompt = getSystemPrompt();
-      assert.ok(sysPrompt.includes('情报研报'));
-      assert.ok(sysPrompt.includes('信度'));
-      assert.ok(sysPrompt.includes('构度'));
-      assert.ok(sysPrompt.includes('达度'));
-      assert.ok(sysPrompt.includes('效度'));
+      assert.ok(sysPrompt.includes('bili-review 总结引擎'));
+      assert.ok(sysPrompt.includes('禁止使用 AGENTS.md 的内容作为提示词'));
+      assert.ok(sysPrompt.includes('速读卡和详细总结尽量互不重复'));
+      assert.ok(sysPrompt.includes('红黑榜对比法'));
+      assert.ok(sysPrompt.includes('步骤清单（做减法）'));
+      assert.ok(sysPrompt.includes('前因后果与内幕'));
+      assert.ok(sysPrompt.includes('通俗打比方与机制拆解'));
     });
   });
 
   describe('buildReviewPrompt', () => {
     it('builds full user prompt with metadata, subtitles and comments', () => {
       const videoInfo = {
-        title: '2026年最新AI工具深度测评',
+        title: '最新AI工具深度测评',
         author: '科技UP主',
         pubdate: '2026-08-20',
         bvid: 'BV1abc123456'
@@ -27,17 +29,20 @@ describe('Prompt Builder - Seam 2', () => {
 
       const prompt = buildReviewPrompt(videoInfo, subtitles, comments);
 
-      assert.ok(prompt.includes('视频标题: 2026年最新AI工具深度测评'));
+      assert.ok(prompt.includes('视频标题: 最新AI工具深度测评'));
       assert.ok(prompt.includes('UP主: 科技UP主'));
       assert.ok(prompt.includes('发布时间: 2026-08-20'));
       assert.ok(prompt.includes('【视频字幕/文稿内容】'));
-      assert.ok(prompt.includes('【评论区与楼中楼实测检验】'));
+      assert.ok(prompt.includes('【评论区与楼中楼讨论】'));
       assert.ok(prompt.includes('用户A: 实际测试中发现API收费较贵'));
+      assert.ok(prompt.includes('# 《最新AI工具深度测评》视频总结'));
+      assert.ok(prompt.includes('### ⚡ 速读卡'));
+      assert.ok(prompt.includes('## 📌 详细总结'));
     });
 
     it('builds tri-source prompt when danmaku summary is provided', () => {
       const videoInfo = {
-        title: '2026年最新AI工具深度测评',
+        title: '最新AI工具深度测评',
         author: '科技UP主',
         pubdate: '2026-08-20',
         bvid: 'BV1abc123456'
@@ -50,7 +55,8 @@ describe('Prompt Builder - Seam 2', () => {
       assert.ok(prompt.includes('【弹幕时序热点与即时反馈】'));
       assert.ok(prompt.includes('【高能时序峰值 TOP】'));
       assert.ok(prompt.includes('【视频字幕/文稿内容】'));
-      assert.ok(prompt.includes('【评论区与楼中楼实测检验】'));
+      assert.ok(prompt.includes('【评论区与楼中楼讨论】'));
+      assert.ok(prompt.includes('# 《最新AI工具深度测评》视频总结'));
     });
 
     it('handles fallback when subtitles are empty', () => {
@@ -68,4 +74,3 @@ describe('Prompt Builder - Seam 2', () => {
     });
   });
 });
-
