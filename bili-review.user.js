@@ -1109,6 +1109,27 @@ ${safeComments}
       width: 100vw !important;
       max-width: 100vw !important;
     }
+    #bili-review-drawer.fullscreen .bili-drawer-header {
+      padding: 12px clamp(32px, 8vw, 120px);
+    }
+    #bili-review-drawer.fullscreen #bili-task-list-view {
+      max-width: 1100px;
+      margin: 0 auto;
+      width: 100%;
+      padding: 28px clamp(24px, 5vw, 60px);
+      box-sizing: border-box;
+    }
+    #bili-review-drawer.fullscreen #bili-summary-detail-view {
+      max-width: 1100px;
+      margin: 0 auto;
+      width: 100%;
+      padding: 0 clamp(24px, 5vw, 60px) 40px clamp(24px, 5vw, 60px);
+      box-sizing: border-box;
+    }
+    #bili-review-drawer.fullscreen .bili-detail-toolbar {
+      margin: 0 calc(-1 * clamp(24px, 5vw, 60px)) 20px calc(-1 * clamp(24px, 5vw, 60px));
+      padding: 14px clamp(24px, 5vw, 60px);
+    }
 
     /* 左边缘拖拽手柄（10px 超宽感应区，零延迟跟手） */
     #bili-drawer-resizer {
@@ -1132,22 +1153,23 @@ ${safeComments}
 
     /* 顶部标题栏 */
     .bili-drawer-header {
-      padding: 10px 14px;
+      padding: 9px 12px;
       border-bottom: 1px solid #E3E5E7;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 8px;
+      gap: 6px;
       background: #F6F7F8;
       flex-wrap: nowrap;
       min-width: 0;
+      box-sizing: border-box;
     }
     .bili-drawer-title {
-      font-size: 14px;
+      font-size: 13.5px;
       font-weight: 700;
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 5px;
       white-space: nowrap;
       flex-shrink: 1;
       min-width: 0;
@@ -1173,7 +1195,7 @@ ${safeComments}
     .bili-drawer-actions {
       display: flex;
       align-items: center;
-      gap: 5px;
+      gap: 4px;
       flex-shrink: 0;
       white-space: nowrap;
     }
@@ -1183,13 +1205,13 @@ ${safeComments}
       background: #18191C;
       color: #E2E8F0;
       border: 1px solid rgba(255, 255, 255, 0.12);
-      border-radius: 6px;
-      padding: 4px 6px;
-      font-size: 12px;
+      border-radius: 5px;
+      padding: 3px 6px;
+      font-size: 11.5px;
       font-weight: 500;
       display: inline-flex;
       align-items: center;
-      gap: 4px;
+      gap: 3px;
       cursor: pointer;
       transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
       user-select: none;
@@ -1211,9 +1233,9 @@ ${safeComments}
     .bili-kbd-badge {
       background: rgba(0, 0, 0, 0.45);
       border: 1px solid rgba(255, 255, 255, 0.18);
-      border-radius: 4px;
-      padding: 1px 4px;
-      font-size: 10.5px;
+      border-radius: 3px;
+      padding: 1px 3px;
+      font-size: 10px;
       font-weight: 700;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
       color: #10B981;
@@ -2033,13 +2055,13 @@ ${safeComments}
     lastCurrentBtnState = stateKey;
 
     if (task && task.status === TaskStatus.COMPLETED) {
-      btn.innerHTML = `<span>📑 查看本视频总结</span>`;
+      btn.innerHTML = `<span>📑 查看总结</span>`;
       btn.classList.add('completed-state');
     } else if (task && (task.status === TaskStatus.EXTRACTING || task.status === TaskStatus.SUMMARIZING)) {
-      btn.innerHTML = `<span>⏳ 本视频总结中...</span>`;
+      btn.innerHTML = `<span>⏳ 总结中...</span>`;
       btn.classList.remove('completed-state');
     } else {
-      btn.innerHTML = `<span>⚡ 总结本视频</span>`;
+      btn.innerHTML = `<span>⚡ 总结当前</span>`;
       btn.classList.remove('completed-state');
     }
   }
@@ -2064,7 +2086,7 @@ ${safeComments}
   // ==========================================
   let activeDetailBvid = null;
   let isDockFullscreen = false;
-  let savedDockWidth = '460px';
+  let savedDockWidth = '480px';
 
   function formatTaskTime(ts) {
     if (!ts) return '';
@@ -2149,7 +2171,7 @@ ${safeComments}
   }
 
   function initUI() {
-    savedDockWidth = gmStorageGet('bili_review_dock_width', '460px');
+    savedDockWidth = gmStorageGet('bili_review_dock_width', '480px');
 
     const styleEl = document.createElement('style');
     styleEl.textContent = STYLES;
@@ -2175,7 +2197,7 @@ ${safeComments}
             <span>⚙️ 设置</span>
           </button>
           <button class="bili-header-pill-btn bili-current-video-btn" id="bili-current-video-btn" style="display: none;" title="一键总结当前正在播放的视频">
-            <span>⚡ 总结本视频</span>
+            <span>⚡ 总结当前</span>
           </button>
         </div>
         <div class="bili-drawer-actions">
