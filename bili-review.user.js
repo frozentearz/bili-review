@@ -1162,6 +1162,13 @@ ${safeComments}
       -webkit-box-orient: vertical;
       overflow: hidden;
       color: #18191C;
+      text-decoration: none;
+      cursor: pointer;
+      transition: color 0.15s ease;
+    }
+    .bili-task-title:hover {
+      color: #00AEEC !important;
+      text-decoration: underline;
     }
     .bili-task-footer {
       display: flex;
@@ -2446,7 +2453,7 @@ ${safeComments}
           <button class="bili-task-del-btn" data-bvid="${t.bvid}" title="删除记录">✕</button>
           <img class="bili-task-cover" src="${t.pic || '//i0.hdslb.com/bfs/archive/placeholder.jpg'}" alt="cover" />
           <div class="bili-task-meta">
-            <div class="bili-task-title" title="${escapeHtml(t.title)}">${escapeHtml(t.title)}</div>
+            <a class="bili-task-title" href="https://www.bilibili.com/video/${t.bvid}" target="_blank" rel="noopener noreferrer" title="点击在 B 站打开原视频: ${escapeHtml(t.title)}">${escapeHtml(t.title)}</a>
             <div class="bili-task-footer">
               <span class="bili-task-author">${escapeHtml(t.author || t.bvid)}</span>
               <div style="display: flex; align-items: center; gap: 6px;">
@@ -2466,7 +2473,7 @@ ${safeComments}
     // 点击卡片进入详情
     container.querySelectorAll('.bili-task-card').forEach((el) => {
       el.addEventListener('click', (e) => {
-        if (e.target.closest('.bili-task-del-btn') || e.target.closest('.bili-dev-retry-btn')) return;
+        if (e.target.closest('.bili-task-del-btn') || e.target.closest('.bili-dev-retry-btn') || e.target.closest('.bili-task-title')) return;
 
         const bvid = el.getAttribute('data-bvid');
         const task = store.getTask(bvid);
