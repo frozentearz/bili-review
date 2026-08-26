@@ -1,6 +1,7 @@
 # 登录凭证, 严禁随包发布
 cookies.txt
 
-# 本地运行产物
+# 本地运行产物与草稿
 __pycache__/
 *.pyc
+SKILL-v2.md
