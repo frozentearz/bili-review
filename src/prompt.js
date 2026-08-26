@@ -74,10 +74,10 @@ export function buildReviewPrompt(videoInfo, subtitleText, danmakuOrCommentsText
     finalComments = danmakuOrCommentsText || '';
   }
 
-  const hasSubtitles = Boolean(subtitleText && subtitleText.trim());
-  const contentSection = hasSubtitles
-    ? subtitleText.trim()
-    : `（该视频无官方/AI字幕，依据视频简介与元数据）\n简介内容：${desc}`;
+  if (!subtitleText || !subtitleText.trim()) {
+    throw new Error('该视频Bilibili官方暂未生成 AI 字幕，不支持总结');
+  }
+  const contentSection = subtitleText.trim();
 
   const safeComments = finalComments && finalComments.trim() ? finalComments.trim() : '暂无精选评论';
 

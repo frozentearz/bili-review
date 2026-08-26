@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Bilibili 视频深度研报总结 (bili-review 2.0)
+// @name         Bilibili 视频总结 (bili-review)
 // @namespace    https://clawhub.ai/frozentearz/skills/bili-review
 // @version      2.1.2
-// @description  边刷B站边看AI深度研报！双源交叉检视（字幕观点 + 楼中楼实测证据），右侧悬浮Dock多任务队列与 Markdown 研报阅读器。支持 Tab/Esc 键全屏控制与拖拽定宽。
+// @description  边刷B站边看AI视频总结！三源交叉检视（字幕观点 + 弹幕时序 + 楼中楼评论），右侧悬浮Dock多任务队列与 Markdown 总结阅读器。支持 Tab/Esc 键控制与拖拽定宽。
 // @author       Frazier
 // @match        *://*.bilibili.com/*
 // @grant        GM_xmlhttpRequest
@@ -579,10 +579,10 @@
       finalComments = danmakuSummary || '';
     }
 
-    const hasSubtitles = Boolean(subtitleText && subtitleText.trim());
-    const contentSection = hasSubtitles
-      ? subtitleText.trim()
-      : `（该视频无官方/AI字幕，依据视频简介与元数据）\n简介内容：${desc}`;
+    if (!subtitleText || !subtitleText.trim()) {
+      throw new Error('该视频Bilibili官方暂未生成 AI 字幕，不支持总结');
+    }
+    const contentSection = subtitleText.trim();
 
     const safeComments = finalComments && finalComments.trim() ? finalComments.trim() : '暂无精选评论';
 
@@ -711,7 +711,7 @@ ${safeComments}
         pic: videoInfo.pic,
         pubdate: videoInfo.pubdate,
         status: TaskStatus.SUMMARIZING,
-        progress: 'Claude Opus 研判中...'
+        progress: 'AI 正在总结中...'
       });
 
       const prompt = buildReviewPrompt(videoInfo, subtitleText, danmakuSummary, commentsText);
@@ -1120,7 +1120,7 @@ ${safeComments}
       border: 1px solid #FCA5A5;
     }
 
-    /* 开发者测试用：重新调研按钮 */
+    /* 开发者测试用：重新总结按钮 */
     .bili-dev-retry-btn {
       background: #F1F2F3;
       border: 1px solid #E3E5E7;
@@ -1546,8 +1546,8 @@ ${safeComments}
 
     const floatBtn = document.createElement('div');
     floatBtn.id = 'bili-review-float-btn';
-    floatBtn.title = '展开/收起研报列表 (按 Tab 键)';
-    floatBtn.innerHTML = `<span>📑 研报列表</span><span id="bili-review-badge">0</span>`;
+    floatBtn.title = '展开/收起总结列表 (按 Tab 键)';
+    floatBtn.innerHTML = `<span>📑 总结列表</span><span id="bili-review-badge">0</span>`;
     document.body.appendChild(floatBtn);
 
     const drawer = document.createElement('div');
@@ -1557,7 +1557,7 @@ ${safeComments}
       <div id="bili-drawer-resizer" title="拖动调整列表宽度"></div>
       <div class="bili-drawer-header">
         <div class="bili-drawer-title">
-          <span>📊 深度研报</span>
+          <span>📊 视频总结</span>
           <span class="bili-model-tag" title="${getConfig().activeModel || getConfig().targetModel}">${getConfig().activeModel || getConfig().targetModel}</span>
         </div>
         <div class="bili-drawer-actions">
@@ -1581,7 +1581,7 @@ ${safeComments}
         <div class="bili-detail-toolbar">
           <button class="bili-back-btn" id="bili-back-to-list-btn">← 返回列表</button>
           <div class="bili-article-actions">
-            <button class="bili-action-btn dev-btn" id="bili-dev-resummarize-btn" title="仅供开发者测试：重新抓取并生成研报">🔄 重新调研</button>
+            <button class="bili-action-btn dev-btn" id="bili-dev-resummarize-btn" title="仅供开发者测试：重新抓取并生成总结">🔄 重新总结</button>
             <button class="bili-action-btn" id="bili-copy-md-btn">📋 复制 Markdown</button>
           </div>
         </div>
@@ -1613,7 +1613,7 @@ ${safeComments}
     });
 
     document.getElementById('bili-clear-btn').addEventListener('click', () => {
-      if (confirm('确定要清空所有已生成的研报记录吗？')) {
+      if (confirm('确定要清空所有已生成的总结记录吗？')) {
         store.clear();
         switchView('list');
       }
@@ -1628,18 +1628,18 @@ ${safeComments}
       const task = store.getTask(activeDetailBvid);
       if (task && task.summary) {
         navigator.clipboard.writeText(task.summary).then(() => {
-          showToast('✅ 研报 Markdown 已复制到剪贴板');
+          showToast('✅ 视频总结 Markdown 已复制到剪贴板');
         });
       }
     });
 
-    // 开发者重新调研按钮（正文工具栏）
+    // 开发者重新总结按钮（正文工具栏）
     document.getElementById('bili-dev-resummarize-btn').addEventListener('click', () => {
       if (!activeDetailBvid) return;
       const bvid = activeDetailBvid;
       const task = store.getTask(bvid);
       if (task) {
-        showToast(`🔄 正在重新调研《${(task.title || bvid).slice(0, 10)}...》`);
+        showToast(`🔄 正在重新总结《${(task.title || bvid).slice(0, 10)}...》`);
         executeSummaryTask(bvid, task);
         switchView('list');
       }
@@ -1839,7 +1839,7 @@ ${safeComments}
       container.innerHTML = `
         <div style="text-align: center; color: #9499A0; padding: 60px 20px; font-size: 13px;">
           <div style="font-size: 36px; margin-bottom: 14px;">📑</div>
-          暂无研报任务<br>
+          暂无总结任务<br>
           在视频卡片右上角点击【总结】图标即可一键生成！
         </div>
       `;
@@ -1854,7 +1854,7 @@ ${safeComments}
         if (t.status === TaskStatus.COMPLETED) {
           badgeText = '✅ 已完成';
         } else if (t.status === TaskStatus.SUMMARIZING) {
-          badgeText = '🤖 AI研判中...';
+          badgeText = '🤖 AI总结中...';
         } else if (t.status === TaskStatus.EXTRACTING) {
           badgeText = '⏳ 抓取数据...';
         } else if (t.status === TaskStatus.FAILED) {
@@ -1870,7 +1870,7 @@ ${safeComments}
             <div class="bili-task-footer">
               <span class="bili-task-author">${escapeHtml(t.author || t.bvid)}</span>
               <div style="display: flex; align-items: center; gap: 6px;">
-                <button class="bili-dev-retry-btn" data-bvid="${t.bvid}" title="开发者测试：重新抓取并生成">🔄 重新调研</button>
+                <button class="bili-dev-retry-btn" data-bvid="${t.bvid}" title="开发者测试：重新抓取并生成">🔄 重新总结</button>
                 <span class="bili-status-badge ${badgeClass}">${badgeText}</span>
               </div>
             </div>
@@ -1896,19 +1896,19 @@ ${safeComments}
             executeSummaryTask(bvid, task);
           }
         } else {
-          showToast('⏳ 研报正在后台深度生成中，完成后即可点击查看正文');
+          showToast('⏳ 正在后台生成总结，完成后即可点击查看');
         }
       });
     });
 
-    // 开发者重新调研按钮（卡片列表）
+    // 开发者重新总结按钮（卡片列表）
     container.querySelectorAll('.bili-dev-retry-btn').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const bvid = btn.getAttribute('data-bvid');
         const task = store.getTask(bvid);
         if (task) {
-          showToast(`🔄 正在重新调研《${(task.title || bvid).slice(0, 10)}...》`);
+          showToast(`🔄 正在重新总结《${(task.title || bvid).slice(0, 10)}...》`);
           executeSummaryTask(bvid, task);
         }
       });
@@ -1931,7 +1931,7 @@ ${safeComments}
         if (btn.dataset.confirming === 'true') {
           if (resetTimer) clearTimeout(resetTimer);
           store.deleteTask(bvid);
-          showToast('🗑️ 研报任务已删除');
+          showToast('🗑️ 任务已删除');
           return;
         }
 
@@ -2006,9 +2006,9 @@ ${safeComments}
       btn.className = 'bili-review-card-btn';
       btn.innerHTML = `
         ${SUMMARY_ICON_SVG}
-        <span class="bili-review-btn-text">AI 研报总结</span>
+        <span class="bili-review-btn-text">AI 总结</span>
       `;
-      btn.setAttribute('title', 'AI 双源情报研报总结');
+      btn.setAttribute('title', 'AI 视频总结（字幕 + 弹幕 + 评论）');
       btn.setAttribute('aria-label', 'AI 总结');
 
       btn.addEventListener('click', (e) => {
@@ -2037,7 +2037,7 @@ ${safeComments}
 
         btn.classList.add('active');
         store.createTask(bvid, meta);
-        showToast(`🚀 已将《${meta.title.slice(0, 12)}...》加入研报队列`);
+        showToast(`🚀 已将《${meta.title.slice(0, 12)}...》加入总结队列`);
         executeSummaryTask(bvid, meta);
       });
 

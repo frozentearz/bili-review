@@ -59,7 +59,7 @@ describe('Prompt Builder - Seam 2', () => {
       assert.ok(prompt.includes('# 《最新AI工具深度测评》视频总结'));
     });
 
-    it('handles fallback when subtitles are empty', () => {
+    it('throws error when subtitles are empty', () => {
       const videoInfo = {
         title: '无字幕测试视频',
         author: '测试UP',
@@ -68,9 +68,9 @@ describe('Prompt Builder - Seam 2', () => {
         desc: '视频简介内容'
       };
 
-      const prompt = buildReviewPrompt(videoInfo, '', '暂无评论');
-      assert.ok(prompt.includes('（该视频无官方/AI字幕，依据视频简介与元数据）'));
-      assert.ok(prompt.includes('视频简介内容'));
+      assert.throws(() => {
+        buildReviewPrompt(videoInfo, '', '暂无评论');
+      }, /该视频Bilibili官方暂未生成 AI 字幕，不支持总结/);
     });
   });
 });

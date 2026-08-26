@@ -4,10 +4,10 @@ import { renderMarkdown } from '../src/markdown.js';
 
 describe('Markdown Renderer - Seam 4', () => {
   it('renders headers, bold, and list items to HTML', () => {
-    const md = `## 🎯 核心研报摘要\n- **一句话结论**：这个产品很强\n> 这是一个引用说明`;
+    const md = `## 🎯 核心摘要\n- **一句话结论**：这个产品很强\n> 这是一个引用说明`;
     const html = renderMarkdown(md);
 
-    assert.ok(html.includes('<h2>🎯 核心研报摘要</h2>'));
+    assert.ok(html.includes('<h2>🎯 核心摘要</h2>'));
     assert.ok(html.includes('<strong>一句话结论</strong>'));
     assert.ok(html.includes('<li>'));
     assert.ok(html.includes('<blockquote>这是一个引用说明</blockquote>'));

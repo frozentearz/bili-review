@@ -35,12 +35,12 @@ describe('TaskStore - Seam 3', () => {
 
     store.updateTask('BV1test12345', {
       status: TaskStatus.COMPLETED,
-      summary: '# 研报正文内容',
+      summary: '# 视频总结正文内容',
       progress: '已完成'
     });
     task = store.getTask('BV1test12345');
     assert.strictEqual(task.status, TaskStatus.COMPLETED);
-    assert.strictEqual(task.summary, '# 研报正文内容');
+    assert.strictEqual(task.summary, '# 视频总结正文内容');
   });
 
   it('handles task failure gracefully', () => {

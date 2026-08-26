@@ -26,7 +26,7 @@
 
 ---
 
-## 📌 详细总结
+## 📌 详细总（红黑榜版，另有步骤清单、前因后果与内幕、通俗打比方与机制拆解等《总结框架》）结
 
 ### 1. 🟢 UP 主吹的卖点（红榜）
 - **性能飞跃**：宣称搭载全新架构，基准跑分提升 **40%**。
@@ -120,7 +120,97 @@ python3 scripts/bili_review.py comments "BV1YRhM64Eni" --replies --limit 50
 | **测评 / 避坑 / 选型** | **红黑榜对比法**         | 🟢 **红榜**（宣传亮点） ｜ 🔴 **黑榜**（实测槽点/暗病） ｜ ⚖️ **选型建议与民间平替** |
 | **教程 / 实操 / 配置** | **步骤清单（做减法）**   | 🛠️ **准备工作** ｜ 📋 **核心步骤（直接抄作业）** ｜ ✂️ **做减法与避坑（跳过冗余）**  |
 | **观点 / 商业 / 热点** | **前因后果与内幕**       | 📖 **背景与矛盾** ｜ 🧠 **UP 主主张** ｜ 🔍 **评论区内幕爆料** ｜ 💡 **底层真相**  |
-| **科普 / 原理 / 架构** | **通俗打比方与机制拆解** | 💡 **通俗大白话比方** ｜ ⚙️ **底层运作机制** ｜ 📌 **弹幕纠错与细节补充**           |
+| **科普 / 原理 /架构**  | **通俗打比方与机制拆解** | 💡 **通俗大白话比方** ｜ ⚙️ **底层运作机制** ｜ 📌 **弹幕纠错与细节补充**           |
+
+---
+
+## 🗺️ 全流程架构与数据管道
+
+```mermaid
+flowchart TD
+    %% ==========================================
+    %% 1. 输入解析
+    %% ==========================================
+    subgraph S1 ["1. 触发与输入解析"]
+        Input["输入任意 B 站链接 / BV号 / AV号<br/>（网页端点击【AI 总结】或按 Tab 键）"] --> ParseId["标准化提取并锁定唯一 BVID"]
+    end
+
+    %% ==========================================
+    %% 2. 本地三源数据抓取（0 外部 API 费用）
+    %% ==========================================
+    subgraph S2 ["2. 本地三源数据抓取管道（纯本地，0 外部 API 费用）"]
+        ParseId --> PipeSub["【源一：AI 字幕（核心前置依赖）】<br/>• 自动探测浏览器 Cookie 抓取官方字幕<br/>• 滑动窗口去重（无 AI 字幕直接报错拦截）"]
+        
+        ParseId --> PipeDan["【源二：弹幕时序】<br/>• 免登录拉取全量 XML (zlib 解压)<br/>• 30秒分桶计算吐槽峰值与 [MM:SS] 即时纠错"]
+        
+        ParseId --> PipeCom["【源三：深度评论】<br/>• 阶梯抓取高赞主楼（过滤水评/刷屏）<br/>• 5 线程池并发深挖楼中楼（支持 Ctrl+C 保留）"]
+        
+        PipeSub --> MergeData["三源原始数据结构化拼装"]
+        PipeDan --> MergeData
+        PipeCom --> MergeData
+    end
+
+    %% ==========================================
+    %% 3. 提示词注入与 4 大场景框架
+    %% ==========================================
+    subgraph S3 ["3. 提示词规范与 4 大场景框架匹配"]
+        MergeData --> PromptInjection["注入 bili-review 独立 Prompt 规范:<br/>• 禁读 AGENTS.md ｜ 速读卡与详细总结尽量互不重复 ｜ 每段首句加粗出结论"]
+        
+        PromptInjection --> Router{"AI 识别视频类型<br/>选用对应总结框架"}
+        Router -- "测评 / 避坑" --> F1["【红黑榜对比法】<br/>🟢 红榜卖点 ｜ 🔴 黑榜暗病 ｜ ⚖️ 选型平替"]
+        Router -- "教程 / 实操" --> F2["【步骤清单做减法】<br/>🛠️ 准备工作 ｜ 📋 核心步骤 ｜ ✂️ 跳过冗余"]
+        Router -- "观点 / 商业" --> F3["【前因后果与内幕】<br/>📖 背景矛盾 ｜ 🧠 UP主主张 ｜ 💡 底层真相"]
+        Router -- "科普 / 原理" --> F4["【通俗打比方与机制拆解】<br/>💡 通俗比方 ｜ ⚙️ 运作机制 ｜ 📌 弹幕纠错"]
+    end
+
+    %% ==========================================
+    %% 4. AI 智力接入与模型生成
+    %% ==========================================
+    subgraph S4 ["4. AI 智力从哪来（真实 2 大接入载体）"]
+        F1 --> AIMode
+        F2 --> AIMode
+        F3 --> AIMode
+        F4 --> AIMode
+
+        AIMode{"AI 智力载体"}
+        AIMode -- "形态 A: 网页油猴插件" --> M_Web["油猴内置 API 客户端直连模型<br/>(支持本地 127.0.0.1:62999 / Claude / DeepSeek)"]
+        AIMode -- "形态 B: AI Agent 技能" --> M_Agent["由宿主 Agent 自身大脑消化生成<br/>(Claude Code / Antigravity / OpenClaw)"]
+    end
+
+    %% ==========================================
+    %% 5. 渐进式双层总结交付
+    %% ==========================================
+    subgraph S5 ["5. 渐进式双层总结交付 (Progressive Output)"]
+        M_Web --> LLMOut["LLM 流式 / 一次性生成双层结构"]
+        M_Agent --> LLMOut
+
+        subgraph Doc ["📄 完整视频总结 Markdown 文档"]
+            Card["【置顶层】⚡ 速读卡 (秒级判断看不看)<br/>• 🚦 判定结论 (避坑/必看/跳过) ｜ 📌 一句话主张<br/>• 🔍 弹幕/评论真相 (附带时间戳/点赞数) ｜ 🎯 行动建议"]
+            
+            Detail["【展开层】📌 详细总结 (按框架落地)<br/>• 客观事实账本、加粗参数/指令、对比表格<br/>• 避免二次复述速读卡内容"]
+            
+            Card --> Detail
+        end
+
+        LLMOut --> Doc
+        Doc --> DeliveryView["交付呈现 (网页抽屉阅读器 / 终端控制台 / 一键复制 Markdown)"]
+    end
+
+    %% 样式
+    classDef step1 fill:#0284c7,stroke:#38bdf8,stroke-width:2px,color:#fff;
+    classDef step2 fill:#0f766e,stroke:#2dd4bf,stroke-width:2px,color:#fff;
+    classDef step3 fill:#7c3aed,stroke:#a78bfa,stroke-width:2px,color:#fff;
+    classDef step4 fill:#d97706,stroke:#fcd34d,stroke-width:2px,color:#fff;
+    classDef step5 fill:#15803d,stroke:#4ade80,stroke-width:2px,color:#fff;
+
+    class Input,ParseId step1;
+    class PipeSub,PipeDan,PipeCom,MergeData step2;
+    class PromptInjection,Router,F1,F2,F3,F4 step3;
+    class AIMode,M_Web,M_Agent step4;
+    class LLMOut,Card,Detail,Doc,DeliveryView step5;
+```
+
+---
 
 ---
 

@@ -503,14 +503,14 @@ def fetch_subtitle(bvid: str, lang: str = None) -> str:
             if "412" in err or "rate" in err:
                 raise RuntimeError("yt-dlp 被B站限流(HTTP 412), 稍后重试。")
             if "logged in" in err or "subtitles" in err:
-                raise RuntimeError(f"该视频没有 {language} 字幕。可尝试 --lang ai-en 等。")
+                raise RuntimeError("该视频Bilibili官方暂未生成 AI 字幕，不支持总结。")
             raise RuntimeError(f"yt-dlp 执行失败: {e.stderr}")
         except FileNotFoundError:
             raise RuntimeError("未找到 yt-dlp, 请先安装: brew install yt-dlp")
 
         files = list(Path(temp_dir).glob("*.vtt")) + list(Path(temp_dir).glob("*.srt"))
         if not files:
-            raise RuntimeError(f"未找到字幕文件, 该视频可能没有 {language} 字幕。")
+            raise RuntimeError("该视频Bilibili官方暂未生成 AI 字幕，不支持总结。")
 
         content = files[0].read_text(encoding='utf-8', errors='replace')
         return clean_subtitle(content, files[0].suffix.lower())
