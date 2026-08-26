@@ -1538,6 +1538,7 @@ ${safeComments}
 
     const floatBtn = document.createElement('div');
     floatBtn.id = 'bili-review-float-btn';
+    floatBtn.title = '展开/收起研报列表 (按 Tab 键)';
     floatBtn.innerHTML = `<span>📑 研报列表</span><span id="bili-review-badge">0</span>`;
     document.body.appendChild(floatBtn);
 
@@ -1553,12 +1554,12 @@ ${safeComments}
         </div>
         <div class="bili-drawer-actions">
           <button class="bili-header-icon-btn" id="bili-clear-btn" title="清空所有记录">🗑️</button>
-          <button class="bili-header-pill-btn" id="bili-fullscreen-btn" title="全屏 / 还原 (按 F 键)">
+          <button class="bili-header-pill-btn" id="bili-fullscreen-btn" title="全屏 / 还原 (按 Tab 键)">
             <svg id="bili-fullscreen-icon" viewBox="0 0 20 20" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M3 8V3h5M17 8V3h-5M3 12v5h5M17 12v5h-5"/>
             </svg>
             <span id="bili-fullscreen-text">全屏</span>
-            <kbd class="bili-kbd-badge">F</kbd>
+            <kbd class="bili-kbd-badge">Tab</kbd>
           </button>
           <button class="bili-header-pill-btn" id="bili-close-btn" title="收起列表 (按 Esc 键)">
             <span style="font-size: 13px; line-height: 1;">✕</span>
