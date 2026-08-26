@@ -1305,6 +1305,7 @@ ${safeComments}
       height: 100vh;
       background: rgba(255, 255, 255, 0.98);
       backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
       box-shadow: -8px 0 32px rgba(0, 0, 0, 0.15);
       z-index: 999999;
       display: flex;
@@ -1315,6 +1316,8 @@ ${safeComments}
       overscroll-behavior: contain;
       overscroll-behavior-y: contain;
       overflow: hidden;
+      transform: translateZ(0);
+      will-change: width, right;
     }
     #bili-review-drawer.resizing {
       transition: none !important;
@@ -1326,6 +1329,9 @@ ${safeComments}
     #bili-review-drawer.fullscreen {
       width: 100vw !important;
       max-width: 100vw !important;
+      background: #FFFFFF !important;
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
     }
     #bili-review-drawer.fullscreen .bili-drawer-header {
       width: 100%;
@@ -1778,6 +1784,75 @@ ${safeComments}
       background: #B45309;
       color: #FFF;
       border-color: #B45309;
+    }
+
+    /* 研报正文底部就地闭环底栏 */
+    .bili-detail-footer-bar {
+      margin-top: 40px;
+      padding: 18px 0 36px 0;
+      border-top: 1px dashed #E3E5E7;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      max-width: 900px;
+      margin-left: auto;
+      margin-right: auto;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .bili-footer-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .bili-footer-btn {
+      background: #F1F2F3;
+      border: 1px solid #E3E5E7;
+      color: #18191C;
+      padding: 7px 14px;
+      border-radius: 7px;
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      user-select: none;
+    }
+    .bili-footer-btn:hover {
+      background: #E3E5E7;
+      color: #00AEEC;
+      border-color: #00AEEC;
+      transform: translateY(-1px);
+    }
+    .bili-footer-back-btn {
+      background: #00AEEC;
+      color: #FFFFFF;
+      border-color: #00AEEC;
+    }
+    .bili-footer-back-btn:hover {
+      background: #009CD8;
+      color: #FFFFFF;
+      box-shadow: 0 2px 8px rgba(0, 174, 236, 0.35);
+    }
+    .bili-footer-del-btn {
+      color: #DC2626;
+      background: #FEF2F2;
+      border-color: #FECACA;
+    }
+    .bili-footer-del-btn:hover {
+      background: #DC2626;
+      color: #FFFFFF;
+      border-color: #DC2626;
+      box-shadow: 0 2px 8px rgba(220, 38, 38, 0.3);
+    }
+    .bili-footer-del-btn.confirm-active {
+      background: #DC2626 !important;
+      color: #FFFFFF !important;
+      border-color: #DC2626 !important;
+      font-weight: 700;
+      box-shadow: 0 2px 8px rgba(220, 38, 38, 0.4);
     }
 
     .bili-markdown-body {
@@ -2456,6 +2531,14 @@ ${safeComments}
           </div>
         </div>
         <div class="bili-markdown-body" id="bili-detail-content"></div>
+        <div class="bili-detail-footer-bar" id="bili-detail-footer-bar">
+          <button class="bili-footer-btn bili-footer-back-btn" id="bili-footer-back-btn">← 返回列表</button>
+          <div class="bili-footer-actions">
+            <button class="bili-footer-btn" id="bili-footer-top-btn" title="平滑回到顶部">↑ 回到顶部</button>
+            <button class="bili-footer-btn" id="bili-footer-copy-btn">📋 复制</button>
+            <button class="bili-footer-btn bili-footer-del-btn" id="bili-footer-del-btn" title="就地删除本条研报并返回列表">🗑️ 删除记录</button>
+          </div>
+        </div>
       </div>
 
       <!-- API 设置 Modal 弹窗 -->
@@ -2677,6 +2760,53 @@ ${safeComments}
       }
     });
 
+    // 底部闭环底栏事件绑定
+    document.getElementById('bili-footer-back-btn').addEventListener('click', () => {
+      switchView('list');
+    });
+
+    document.getElementById('bili-footer-top-btn').addEventListener('click', () => {
+      const detailView = document.getElementById('bili-summary-detail-view');
+      if (detailView) {
+        detailView.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    });
+
+    document.getElementById('bili-footer-copy-btn').addEventListener('click', () => {
+      if (!activeDetailBvid) return;
+      const task = store.getTask(activeDetailBvid);
+      if (task && task.summary) {
+        navigator.clipboard.writeText(task.summary).then(() => {
+          showToast('✅ 视频总结 Markdown 已复制到剪贴板');
+        });
+      }
+    });
+
+    const footerDelBtn = document.getElementById('bili-footer-del-btn');
+    let footerDelTimer = null;
+    footerDelBtn.addEventListener('click', () => {
+      if (!activeDetailBvid) return;
+      if (footerDelBtn.dataset.confirming === 'true') {
+        if (footerDelTimer) clearTimeout(footerDelTimer);
+        const targetBvid = activeDetailBvid;
+        footerDelBtn.dataset.confirming = 'false';
+        footerDelBtn.classList.remove('confirm-active');
+        footerDelBtn.textContent = '🗑️ 删除记录';
+        store.deleteTask(targetBvid);
+        switchView('list');
+        showToast('🗑️ 已删除该篇总结记录');
+      } else {
+        footerDelBtn.dataset.confirming = 'true';
+        footerDelBtn.classList.add('confirm-active');
+        footerDelBtn.textContent = '⚠️ 确定删除?';
+        footerDelTimer = setTimeout(() => {
+          footerDelBtn.dataset.confirming = 'false';
+          footerDelBtn.classList.remove('confirm-active');
+          footerDelBtn.textContent = '🗑️ 删除记录';
+        }, 3000);
+      }
+    });
+
     // 点击主页空白处自动收起
     document.addEventListener('click', (e) => {
       if (!drawer.classList.contains('open')) return;
@@ -2789,7 +2919,6 @@ ${safeComments}
     isDockFullscreen = Boolean(fullscreen);
     if (isDockFullscreen) {
       drawer.classList.add('fullscreen');
-      document.body.style.overflow = 'hidden';
       if (textEl) textEl.textContent = '收起';
       if (iconEl) {
         iconEl.innerHTML = `
@@ -2798,7 +2927,6 @@ ${safeComments}
       }
     } else {
       drawer.classList.remove('fullscreen');
-      document.body.style.overflow = '';
       drawer.style.width = savedDockWidth || '480px';
       if (textEl) textEl.textContent = '全屏';
       if (iconEl) {
