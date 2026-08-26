@@ -1,7 +1,7 @@
 ---
 name: bili-review
-description: 获取视频AI字幕总结+读取【评论区楼中楼】（痛点）并总结。双源情报研报生成器（视频字幕 UP 主单方主张 + 评论/楼中楼实测检验证据）。AI字幕需要获取浏览器Cookie获取登录状态。触发词：B站视频总结、B站总结、B站评论、看评论区、视频讲了什么、B站深度分析。
-version: 2.0.0
+description: 获取视频AI字幕总结+弹幕时序分析+读取【评论区楼中楼】（痛点）并总结。三源情报研报生成器（视频字幕 UP 主单方主张 + 高能弹幕时序共识/即时纠错 + 评论/楼中楼实测检验证据）。AI字幕需要获取浏览器Cookie获取登录状态。触发词：B站视频总结、B站总结、B站评论、看评论区、视频讲了什么、B站深度分析、弹幕分析。
+version: 2.1.0
 author: Frazier
 metadata:
   openclaw:
@@ -30,7 +30,7 @@ metadata:
 
 > 如果这个 skill 对你有用，欢迎 [⭐ Star](https://github.com/frozentearz/bili-review) 支持，遇到问题或建议请 [📝 提 Issue](https://github.com/frozentearz/bili-review/issues)。
 
-B站视频总结：**视频AI字幕总结 + 评论区总结**。
+B站视频总结：**视频AI字幕总结 + 弹幕时序分析 + 评论区楼中楼总结**。
 
 根据总结内容，从四大维度的专业总结方法论，适配合适的总结方法进行总结。
 
@@ -38,10 +38,11 @@ B站视频总结：**视频AI字幕总结 + 评论区总结**。
 
 ## 模块 1：能力定位与核心机制
 
-`bili-review` 是**B站视频双源情报研报生成器**。
-通过整合**视频 AI 字幕（UP 主单方主张）**与**高赞/楼中楼评论（群众实测检验证据）**，交叉比对提炼高信度事实、本质洞察（So What）与行动指引（Actionable）。
+`bili-review` 是**B站视频三源情报研报生成器**。
+通过整合**视频 AI 字幕（UP 主单方主张）**、**高能弹幕时序（群体情绪与即时纠错）**与**高赞/楼中楼评论（群众实测检验证据）**，交叉比对提炼高信度事实、本质洞察（So What）与行动指引（Actionable）。
 
 - **字幕管道**：基于 `yt-dlp` 抓取 B 站官方 AI 字幕（自动复用本地 150 天免维护 Cookie）。
+- **弹幕管道**：基于 B 站全量 XML 接口，免登录零依赖快速分桶统计高能时刻与热词，提炼即时纠错证据。
 - **评论管道**：基于 B 站公开 API，免登录并发深挖热门主楼与楼中楼，自动去噪与阶梯定量。
 - **研报引擎**：自适应匹配分析模型，四大维度（信度、构度、达度、效度 10 项准则）约束，输出结论先行、排版规整的高信息密度研报。
 
@@ -52,17 +53,19 @@ B站视频总结：**视频AI字幕总结 + 评论区总结**。
 Agent 接收到视频分析指令后，必须严格遵循以下 4 步执行：
 
 ```
-[1. 解析输入] ──► [2. 抓取双源数据] ──► [3. 自适应模型路由] ──► [4. 生成标准研报]
-   BV/AV/链接        all / subtitle / comments     根据内容类型匹配          双源交叉+洞察+行动
+[1. 解析输入] ──► [2. 抓取三源数据] ──► [3. 自适应模型路由] ──► [4. 生成标准研报]
+   BV/AV/链接     all / subtitle / danmaku / comments   根据内容类型匹配     多源交叉+洞察+行动
 ```
 
 1. **解析输入**：提取标准 `BV号`（支持 BV 号、AV 号、`bilibili.com` 网页链接、`b23.tv` 短链）。
-2. **抓取双源数据**：
+2. **抓取数据**：
    - 默认执行全量合并抓取：`python3 {baseDir}/scripts/bili_review.py all "<bvid>"`
+   - 仅看弹幕时序时执行：`python3 {baseDir}/scripts/bili_review.py danmaku "<bvid>"`
    - 仅看评论区时执行：`python3 {baseDir}/scripts/bili_review.py comments "<bvid>" --replies`
    - 仅看字幕时执行：`python3 {baseDir}/scripts/bili_review.py subtitle "<bvid>"`
 3. **自适应模型路由**：根据视频主题属性自动选定最适合的分析框架。
 4. **生成标准研报**：遵循输出契约与排版铁律交付最终分析。
+
 
 ---
 
@@ -176,8 +179,9 @@ Agent 输出必须遵循以下统一 Markdown 契约模板：
 
 ---
 
-## 3. 双源信度交叉验证（字幕 vs 评论区）
+## 3. 多源信度交叉验证（字幕 vs 弹幕高能 vs 评论区）
 - **UP 主单方主张**：视频宣称的核心优势或主要论点。
+- **弹幕时序共识与即时纠错**：高能时刻观众情绪、实时反驳与避坑提醒（附带时间戳 [MM:SS]）。
 - **评论区实测验证**：高赞/楼中楼反馈的真实体验、翻车案例或补充方案（附带 [YYYY-MM-DD] 与点赞数）。
 - **交叉定性结论**：综合评定真实可靠性与已知边界。
 
@@ -203,12 +207,16 @@ Agent 输出必须遵循以下统一 Markdown 契约模板：
 python3 {baseDir}/scripts/bili_review.py login     # 首次从浏览器提取登录态
 python3 {baseDir}/scripts/bili_review.py status    # 查看登录态有效状态
 
-# 2. 全量数据抓取（字幕 + 评论区）
+# 2. 全量数据抓取（字幕 + 弹幕时序 + 评论区）
 python3 {baseDir}/scripts/bili_review.py all "<bvid|url>"
 
 # 3. 仅抓取字幕（支持 --lang ai-zh / ai-en）
 python3 {baseDir}/scripts/bili_review.py subtitle "<bvid|url>" --lang ai-zh
 
-# 4. 仅抓取评论区（--replies 开启楼中楼深挖；--limit 控制主楼数量；--all-comments 全量扫描）
+# 4. 仅抓取弹幕时序分析（高能峰值分桶 + 关键纠错）
+python3 {baseDir}/scripts/bili_review.py danmaku "<bvid|url>"
+
+# 5. 仅抓取评论区（--replies 开启楼中楼深挖；--limit 控制主楼数量；--all-comments 全量扫描）
 python3 {baseDir}/scripts/bili_review.py comments "<bvid|url>" --replies --limit 50
 ```
+

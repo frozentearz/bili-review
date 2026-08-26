@@ -26,6 +26,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+import zlib
 from pathlib import Path
 
 UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -97,7 +98,7 @@ def http_get_json(url: str, referer: str = None, retries: int = 3) -> dict:
 
 
 def get_video_info(bvid: str) -> dict:
-    """通过 view 接口获取 aid 和元信息."""
+    """通过 view 接口获取 aid、cid 和元信息."""
     data = http_get_json(f"https://api.bilibili.com/x/web-interface/view?bvid={bvid}",
                          referer=f"https://www.bilibili.com/video/{bvid}")
     if data.get('code') != 0:
@@ -105,8 +106,11 @@ def get_video_info(bvid: str) -> dict:
     d = data['data']
     pubdate_ts = d.get('pubdate', 0)
     pubdate_str = time.strftime('%Y-%m-%d', time.localtime(pubdate_ts)) if pubdate_ts else '未知'
+    cid = d.get('cid') or (d.get('pages') and d['pages'][0].get('cid')) or 0
     return {
         'aid': d['aid'],
+        'cid': cid,
+        'duration': d.get('duration', 0),
         'title': d['title'],
         'author': d['owner']['name'],
         'pubdate': pubdate_str,
@@ -114,6 +118,7 @@ def get_video_info(bvid: str) -> dict:
             'view': d['stat']['view'],
             'like': d['stat']['like'],
             'comment': d['stat']['reply'],
+            'danmaku': d['stat'].get('danmaku', 0),
         },
     }
 
@@ -543,10 +548,149 @@ def print_subtitle_output(bvid: str, lang: str) -> None:
     print(text)
 
 
+# ---------- 弹幕分析 ----------
+
+def fmt_seconds_to_time(seconds: float) -> str:
+    s = int(seconds or 0)
+    mm = s // 60
+    ss = s % 60
+    return f"[{mm:02d}:{ss:02d}]"
+
+
+def fetch_danmaku(cid: int) -> list:
+    """获取视频全量 XML 弹幕 (免登录, 纯标准库 zlib 解压)."""
+    if not cid:
+        return []
+    url = f"https://comment.bilibili.com/{cid}.xml"
+    headers = {'User-Agent': UA, 'Referer': 'https://www.bilibili.com/'}
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            raw = resp.read()
+    except Exception as e:
+        raise RuntimeError(f"获取弹幕失败: {e}") from e
+
+    try:
+        decompressed = zlib.decompress(raw, -zlib.MAX_WBITS)
+    except Exception:
+        try:
+            decompressed = zlib.decompress(raw, zlib.MAX_WBITS | 32)
+        except Exception:
+            decompressed = raw
+
+    xml_text = decompressed.decode('utf-8', errors='replace')
+    items = re.findall(r'<d\s+p="([^"]+)">([^<]+)</d>', xml_text)
+    results = []
+    for p, text in items:
+        text = text.strip()
+        if not text:
+            continue
+        parts = p.split(',')
+        try:
+            t = float(parts[0])
+        except Exception:
+            t = 0.0
+        results.append({
+            'time': t,
+            'text': text,
+            'dmid': parts[7] if len(parts) > 7 else '',
+        })
+    results.sort(key=lambda x: x['time'])
+    return results
+
+
+def analyze_danmaku(danmaku_list: list, bucket_sec: int = 30, top_spikes: int = 5) -> dict:
+    """分析弹幕: 时间轴分桶高能峰值检测与即时纠错/避坑预警提炼."""
+    if not danmaku_list:
+        return {'total': 0, 'highlights': [], 'corrections': []}
+
+    buckets = {}
+    correction_keywords = ('错', '避坑', '翻车', '其实', '注意', '假', 'bug', '骗', '误导', '不建议', '千万别', '坑')
+    corrections = []
+
+    for d in danmaku_list:
+        b_idx = int(d['time'] // bucket_sec)
+        start_sec = b_idx * bucket_sec
+        if b_idx not in buckets:
+            buckets[b_idx] = {
+                'startTime': start_sec,
+                'endTime': start_sec + bucket_sec,
+                'count': 0,
+                'texts': []
+            }
+        b = buckets[b_idx]
+        b['count'] += 1
+        b['texts'].append(d['text'])
+
+        # 提取关键纠错/避坑弹幕
+        if any(kw in d['text'] for kw in correction_keywords) and len(corrections) < 15:
+            corrections.append({
+                'time': d['time'],
+                'timeFormatted': fmt_seconds_to_time(d['time']),
+                'text': d['text']
+            })
+
+    sorted_buckets = sorted(buckets.values(), key=lambda x: x['count'], reverse=True)
+    highlights = []
+    for b in sorted_buckets[:top_spikes]:
+        freq = {}
+        for txt in b['texts']:
+            clean = re.sub(r'[\s,.!?;:，。！？；：~～]+', '', txt)
+            if len(clean) >= 2:
+                freq[clean] = freq.get(clean, 0) + 1
+        top_buzz = [w for w, _ in sorted(freq.items(), key=lambda x: x[1], reverse=True)[:3]]
+        highlights.append({
+            'timeRange': f"[{fmt_seconds_to_time(b['startTime']).strip('[]')} - {fmt_seconds_to_time(b['endTime']).strip('[]')}]",
+            'count': b['count'],
+            'topBuzzwords': top_buzz,
+            'samples': b['texts'][:3]
+        })
+
+    return {
+        'total': len(danmaku_list),
+        'highlights': highlights,
+        'corrections': corrections
+    }
+
+
+def format_danmaku_summary(analysis: dict) -> str:
+    if not analysis or not analysis.get('total'):
+        return "暂无弹幕时序数据"
+    lines = [f"- 弹幕总量: {analysis['total']} 条"]
+    if analysis.get('highlights'):
+        lines.append("\n【高能时序峰值 TOP】:")
+        for idx, h in enumerate(analysis['highlights'], 1):
+            buzz_str = f" (热词: {', '.join(f'\"{w}\"' for w in h['topBuzzwords'])})" if h.get('topBuzzwords') else ""
+            lines.append(f"{idx}. {h['timeRange']} 弹幕密度: {h['count']}条{buzz_str}")
+            if h.get('samples'):
+                lines.append(f"   └ 典型弹幕: {' | '.join(f'\"{s}\"' for s in h['samples'])}")
+    if analysis.get('corrections'):
+        lines.append("\n【即时纠错 / 避坑预警 / 关键弹幕】:")
+        for c in analysis['corrections']:
+            lines.append(f"- {c['timeFormatted']} {c['text']}")
+    return "\n".join(lines)
+
+
+def print_danmaku_output(bvid: str) -> None:
+    info = get_video_info(bvid)
+    dms = fetch_danmaku(info['cid'])
+    analysis = analyze_danmaku(dms)
+    s = info['stats']
+    print(f"# 视频: {info['title']}")
+    print(f"# BVID: {bvid}")
+    print(f"# UP主: {info['author']}")
+    print(f"# 发布时间: {info.get('pubdate', '')}")
+    print(f"# 播放: {fmt_num(s['view'])} / 弹幕: {fmt_num(s.get('danmaku', len(dms)))} / 点赞: {fmt_num(s['like'])} / 评论: {fmt_num(s['comment'])}")
+    print()
+    print("## 弹幕时序分析")
+    print()
+    print(format_danmaku_summary(analysis))
+
+
 # ---------- 入口 ----------
 
 def main():
-    parser = argparse.ArgumentParser(description="bili-review: B站字幕+评论抓取")
+    parser = argparse.ArgumentParser(description="bili-review: B站字幕+弹幕+评论抓取")
     sub = parser.add_subparsers(dest="mode", required=True)
 
     p_login = sub.add_parser("login", help="从浏览器提取登录态存本地(首次授权一次)")
@@ -555,14 +699,16 @@ def main():
     p_status = sub.add_parser("status", help="查看登录态状态")
     p_status.set_defaults(func=cmd_status)
 
-    for name in ("subtitle", "comments", "all"):
+    for name in ("subtitle", "danmaku", "comments", "all"):
         p = sub.add_parser(name, help=f"{name} 抓取")
         p.add_argument("input", help="BV号 / 视频链接 / b23.tv 短链")
-        p.add_argument("--lang", default=None, help="字幕语言(默认 ai-zh, 如 en 用 ai-en)")
-        p.add_argument("--limit", type=int, default=200, help="楼层目标上限(默认200, 设为0或使用--all-comments表示全量抓取)")
-        p.add_argument("--all-comments", action="store_true", help="全量爬取评论区(不设上限)")
-        p.add_argument("-y", "--yes", action="store_true", help="自动确认全量抓取，跳过交互提示")
-        p.add_argument("--replies", action="store_true", help="同时抓取楼中楼(按楼数规则对齐20条/页: 20内全爬, 250内取40, 250+取60)")
+        if name in ("subtitle", "all"):
+            p.add_argument("--lang", default=None, help="字幕语言(默认 ai-zh, 如 en 用 ai-en)")
+        if name in ("comments", "all"):
+            p.add_argument("--limit", type=int, default=200, help="楼层目标上限(默认200, 设为0或使用--all-comments表示全量抓取)")
+            p.add_argument("--all-comments", action="store_true", help="全量爬取评论区(不设上限)")
+            p.add_argument("-y", "--yes", action="store_true", help="自动确认全量抓取，跳过交互提示")
+            p.add_argument("--replies", action="store_true", help="同时抓取楼中楼(按楼数规则对齐20条/页: 20内全爬, 250内取40, 250+取60)")
         p.set_defaults(func=None)
     args = parser.parse_args()
 
@@ -575,12 +721,12 @@ def main():
         return
 
     try:
-        if args.limit < 0:
-            raise ValueError(f"--limit 不能为负数(当前 {args.limit})")
+        limit = getattr(args, 'limit', 200)
+        if limit < 0:
+            raise ValueError(f"--limit 不能为负数(当前 {limit})")
         bvid = extract_bvid(args.input)
-        want_full = getattr(args, 'all_comments', False) or args.limit == 0
+        want_full = getattr(args, 'all_comments', False) or limit == 0
         is_full = False
-        limit = args.limit
         if want_full:
             info = get_video_info(bvid)
             is_full = confirm_full_crawl(info['stats']['comment'], getattr(args, 'replies', False), getattr(args, 'yes', False))
@@ -589,6 +735,8 @@ def main():
 
         if args.mode == 'subtitle':
             print_subtitle_output(bvid, args.lang)
+        elif args.mode == 'danmaku':
+            print_danmaku_output(bvid)
         elif args.mode == 'comments':
             result = fetch_comments(bvid, limit, args.replies, is_full=is_full)
             result['info']['bvid'] = bvid
@@ -597,17 +745,23 @@ def main():
             info = get_video_info(bvid)
             info['bvid'] = bvid
             subtitle_text = fetch_subtitle(bvid, args.lang)
+            danmaku_list = fetch_danmaku(info['cid'])
+            danmaku_analysis = analyze_danmaku(danmaku_list)
             result = fetch_comments(bvid, limit, args.replies, is_full=is_full)
             s = info['stats']
             print(f"# 视频: {info['title']}")
             print(f"# BVID: {bvid}")
             print(f"# UP主: {info['author']}")
             print(f"# 发布时间: {info.get('pubdate', '')}")
-            print(f"# 播放: {fmt_num(s['view'])} / 点赞: {fmt_num(s['like'])} / 评论: {fmt_num(s['comment'])}")
+            print(f"# 播放: {fmt_num(s['view'])} / 弹幕: {fmt_num(s.get('danmaku', len(danmaku_list)))} / 点赞: {fmt_num(s['like'])} / 评论: {fmt_num(s['comment'])}")
             print()
             print("## 字幕")
             print()
             print(subtitle_text)
+            print()
+            print("## 弹幕时序热点")
+            print()
+            print(format_danmaku_summary(danmaku_analysis))
             print()
             print("## 评论区")
             print()
@@ -619,3 +773,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
