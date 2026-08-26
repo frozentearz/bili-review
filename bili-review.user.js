@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Bilibili 视频深度研报总结 (bili-review 2.0)
 // @namespace    https://clawhub.ai/frozentearz/skills/bili-review
-// @version      2.1.1
-// @description  边刷B站边看AI深度研报！双源交叉检视（字幕观点 + 楼中楼实测证据），右侧悬浮Dock多任务队列与 Markdown 研报阅读器。支持 F/Esc 键全屏控制与拖拽定宽。
+// @version      2.1.2
+// @description  边刷B站边看AI深度研报！双源交叉检视（字幕观点 + 楼中楼实测证据），右侧悬浮Dock多任务队列与 Markdown 研报阅读器。支持 Tab/Esc 键全屏控制与拖拽定宽。
 // @author       Frazier
 // @match        *://*.bilibili.com/*
 // @grant        GM_xmlhttpRequest
@@ -1649,14 +1649,14 @@ ${safeComments}
       closeDock();
     });
 
-    // 全局快捷键 F 与 Esc 状态机
+    // 全局快捷键 Tab 与 Esc 状态机
     document.addEventListener('keydown', (e) => {
       const activeTag = document.activeElement ? document.activeElement.tagName : '';
       if (activeTag === 'INPUT' || activeTag === 'TEXTAREA' || document.activeElement?.isContentEditable) {
         return;
       }
 
-      if (e.key === 'f' || e.key === 'F') {
+      if (e.key === 'Tab') {
         if (e.ctrlKey || e.metaKey || e.altKey) return;
         e.preventDefault();
 
